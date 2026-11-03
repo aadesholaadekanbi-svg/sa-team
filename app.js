@@ -29,7 +29,7 @@ const COLORS = ['#c6ff4d', '#f9a8d4', '#93c5fd', '#fcd34d', '#86efac', '#c4b5fd'
 const colorOf = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; };
 const av = (name, s = 36) => `<div class="av" style="width:${s}px;height:${s}px;background:${colorOf(name)};font-size:${Math.round(s / 2.8)}px">${esc((name || '?').trim()[0] || '?').toUpperCase()}</div>`;
 const chip = (role) => (role ? `<span class="chip" style="color:${esc(role.color)};background:${esc(role.color)}22">${esc(role.name)}</span>` : '<span class="chip">No role</span>');
-const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const plural = (n, w) => `${n} ${n === 1 ? w : w === 'person' ? 'people' : w + 's'}`;
 let toastT; function toast(m, t = 2600) { const el = $('#toast'); el.textContent = m; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), t); }
 function ask(title, body, yes = 'Yes', bad = false) {
   return new Promise((res) => {
@@ -129,7 +129,7 @@ function teamPage() { $('#app').innerHTML = `<div class="team">${teamView(S.E, {
 function teamView(E, st, pv) {
   const { me, role, settings, models, clocks, breaks } = E;
   const open = clocks.find((c) => !c.ended_at), onBreak = open && breaks.find((b) => b.clock_id === open.id && !b.ended_at);
-  const head = `<div class="thead"><img src="${LOGO}" alt=""><b class="bric" style="font-size:16px">SA. Team</b><span class="sp"></span>${pv ? '<span class="chip">preview</span>' : '<button class="btn sm" data-a="signout">Sign out</button>'}</div>`;
+  const head = `<div class="thead"><img src="${LOGO}" alt=""><b class="bric" style="font-size:16px">SA. Team</b><span class="sp"></span>${pv ? `<span class="chip">${typeof pv === 'string' ? esc(pv) : 'preview'}</span>` : '<button class="btn sm" data-a="signout">Sign out</button>'}</div>`;
   let body;
   if (open && onBreak) {
     body = `<div class="row"><span class="st br"><i></i>On break</span><span class="sp"></span><span class="mu" style="font-size:12px">${esc((open.models || []).join(', '))}</span></div>
@@ -296,21 +296,78 @@ function teamDataFor(p) {
   const O = S.O;
   return { me: p, role: roleOf(p), settings: O.settings, models: O.models, clocks: O.clocks.filter((c) => c.person_id === p.id), breaks: O.breaks.filter((b) => b.person_id === p.id) };
 }
+// ---- practice ("Try it"): their real screen code, their real setup, nothing saved ----
+function pracNew(p) {
+  const E = teamDataFor(p), closed = E.clocks.filter((c) => c.ended_at);
+  S.prac = { pid: p.id, E: { ...E, clocks: closed.map((c) => ({ ...c })), breaks: E.breaks.filter((b) => closed.some((c) => c.id === b.clock_id)).map((b) => ({ ...b })) }, st: { tab: 'home', pick: (p.models || []).filter((m) => S.O.models.some((x) => x.name === m)), co: false, note: '' }, done: { home: true } };
+}
+const pracOpen = () => S.prac.E.clocks.find((c) => !c.ended_at);
+const PA = {
+  ttab: (v) => { S.prac.st.tab = v; if (v === 'week' && S.prac.done.clockout) S.prac.done.week = true; },
+  pick: (v) => { const k = S.prac.st.pick.indexOf(v); if (k >= 0) S.prac.st.pick.splice(k, 1); else S.prac.st.pick.push(v); },
+  clockin: () => {
+    const P = S.prac, E = P.E; if (E.models.length && !P.st.pick.length) return toast('Pick who you’re covering first.', 2500);
+    const steps = [...((E.role && E.role.checklist) || []), ...(E.me.extra_checklist || [])];
+    E.clocks.unshift({ id: 'practice-' + Date.now(), person_id: E.me.id, started_at: new Date().toISOString(), ended_at: null, models: [...P.st.pick], checklist: steps.map((t) => ({ t, done: false })), handover: null, break_secs: 0, auto_closed: false });
+    P.done.pick = true; P.done.clockin = true; toast('Clocked in (practice). Have a good one');
+  },
+  breakstart: () => { const c = pracOpen(); S.prac.E.breaks.push({ id: 'pb-' + Date.now(), clock_id: c.id, person_id: c.person_id, started_at: new Date().toISOString(), ended_at: null }); S.prac.done.brk = true; toast('Break started (practice)'); },
+  breakend: () => { const b = S.prac.E.breaks.find((x) => !x.ended_at); if (b) b.ended_at = new Date().toISOString(); toast('Back on shift (practice)'); },
+  tick: (v) => { const c = pracOpen(); c.checklist[+v].done = !c.checklist[+v].done; },
+  costart: () => { S.prac.st.co = true; S.prac.st.note = ''; },
+  cancelco: () => { S.prac.st.co = false; },
+  clockout: () => {
+    const P = S.prac, c = pracOpen(), now = new Date().toISOString(); const t = document.querySelector('#pvbox #handover');
+    P.E.breaks.filter((b) => b.clock_id === c.id && !b.ended_at).forEach((b) => { b.ended_at = now; });
+    c.break_secs = Math.round(P.E.breaks.filter((b) => b.clock_id === c.id).reduce((a, b) => a + ms(b.ended_at) - ms(b.started_at), 0) / 1000);
+    c.ended_at = now; c.handover = t ? t.value.trim() || null : null; P.st.co = false; P.st.tab = 'home'; P.done.clockout = true;
+    toast(`Clocked out · ${hm(ms(c.ended_at) - ms(c.started_at) - c.break_secs * 1000)} (practice, not saved)`, 3500);
+  },
+};
 function wtsView(m) {
   const O = S.O, team = O.people.filter((p) => !p.is_owner);
   if (!team.some((p) => p.id === S.wts)) S.wts = (team.find((p) => p.active) || team[0] || {}).id || null;
   const p = team.find((x) => x.id === S.wts);
   if (!p) { m.innerHTML = `${topBar('What they see', 'Built live from your settings')}<div class="body"><div class="card empty">Add someone in People first.</div></div>`; return; }
-  const E = teamDataFor(p), r = E.role, can = breaksAllowed(p, r), open = E.clocks.find((c) => !c.ended_at);
+  const live = teamDataFor(p), r = live.role, can = breaksAllowed(p, r), open = live.clocks.find((c) => !c.ended_at), nm = esc(first(p.name));
   const steps = (r ? r.checklist || [] : []).length, extra = (p.extra_checklist || []).length;
   const sees = [`Their name, “${r ? r.name : 'No role'}” and the date`, `Their own hours, shifts and checklist score this week`, `Clock in / out${can ? ', breaks' : ' (no breaks: ' + (p.breaks_override === false ? 'off just for them' : 'off for the role') + ')'}`, `A checklist of ${plural(steps + extra, 'step')} each shift${extra ? ` (${steps} from the role + ${extra} just for ${first(p.name)})` : ''}`, `Models to pick: ${O.models.map((x) => x.name).join(', ') || 'none set'}${(p.models || []).length ? ` (pre-picked: ${p.models.join(', ')})` : ''}`, O.settings.next_pay_day ? `The next pay day date (${O.settings.next_pay_day})` : 'A pay day card with no date (set one in Settings)', 'Their own handover notes'];
   const hidden = ['Any rate, commission, sales or pay total (until you send payslips in phase 4)', 'Anyone else: names, hours, shifts or notes', 'Live floor, People, Departments & roles, Settings', 'Your private note about them', 'Their own employee ID (nobody can read it back, not even you)'];
-  m.innerHTML = `${topBar('What they see', 'Built live from your settings', `<select id="wtsp" style="height:36px">${team.map((x) => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}${roleOf(x) ? ' · ' + esc(roleOf(x).name) : ''}${x.active ? '' : ' (off)'}</option>`).join('')}</select><button class="btn ${S.wtsMode === 'phone' ? 'pri' : ''}" data-a="wtsmode" data-v="phone">Phone</button><button class="btn ${S.wtsMode === 'laptop' ? 'pri' : ''}" data-a="wtsmode" data-v="laptop">Laptop</button>`)}
-  <div class="body"><div class="wts"><div><div class="${S.wtsMode}" id="pvbox"><div class="scr team" style="min-height:100%">${p.active ? teamView(E, { tab: S.wtsTab || 'home', pick: (p.models || []) }, true) : `<div class="tw pv">${gateBox(`Hey ${esc(first(p.name))}, your access is switched off right now. Talk to Sola.`)}</div>`}</div></div><div class="pv-note">${open ? `${esc(first(p.name))} is on shift right now: this is their live screen.` : `${esc(first(p.name))}’s ${S.wtsTab === 'week' ? 'My week' : 'home'} screen, right now`} · ${S.wtsMode === 'phone' ? '' : 'on a laptop it sits in the middle like this · '}<button class="btn sm" data-a="wtstab" data-v="${S.wtsTab === 'week' ? 'home' : 'week'}">Show ${S.wtsTab === 'week' ? 'Home' : 'My week'}</button></div></div>
-  <div class="col" style="gap:14px"><div class="card" style="padding:16px 18px"><div class="lbl" style="margin-bottom:10px">${esc(first(p.name))} sees</div><div class="seen">${sees.map((x) => `<div><b class="ok">✓</b>${esc(x)}</div>`).join('')}</div></div>
-  <div class="card" style="padding:16px 18px"><div class="lbl" style="margin-bottom:10px">Hidden from ${esc(first(p.name))}</div><div class="seen">${hidden.map((x) => `<div><b style="color:var(--ac)">🔒</b>${esc(x)}</div>`).join('')}</div></div>
-  <div class="mu2" style="font-size:12px;line-height:1.55">Change their role, a checklist step or breaks and this updates on the spot. The lock is in the database, not just on screen: their ID only opens their own data, so nothing else can be dug out of the page either.</div>
-  ${!p.last_seen ? `<div class="err" style="color:#fcd34d;background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.3)">${esc(first(p.name))} hasn’t signed in yet.</div>` : ''}</div></div></div>`;
+  const tryOn = !!S.wtsTry && p.active;
+  if (tryOn && (!S.prac || S.prac.pid !== p.id)) pracNew(p);
+  const seg = `<span class="seg2"><button class="${tryOn ? '' : 'on'}" data-a="wtstry" data-v="0">Live</button><button class="${tryOn ? 'on' : ''}" data-a="wtstry" data-v="1" ${p.active ? '' : 'disabled title="Their access is off"'}>▶ Try it</button></span>`;
+  const head = topBar('What they see', 'Built live from your settings', `<select id="wtsp" style="height:36px">${team.map((x) => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${esc(x.name)}${roleOf(x) ? ' · ' + esc(roleOf(x).name) : ''}${x.active ? '' : ' (off)'}</option>`).join('')}</select>${seg}<button class="btn ${S.wtsMode === 'phone' ? 'pri' : ''}" data-a="wtsmode" data-v="phone">Phone</button><button class="btn ${S.wtsMode === 'laptop' ? 'pri' : ''}" data-a="wtsmode" data-v="laptop">Laptop</button>${tryOn ? '<button class="btn" data-a="pracreset">↺ Reset practice</button>' : ''}`);
+  const screen = !p.active ? `<div class="tw pv">${gateBox(`Hey ${nm}, your access is switched off right now. Talk to Sola.`)}</div>`
+    : tryOn ? teamView(S.prac.E, S.prac.st, 'as ' + first(p.name)) : teamView(live, { tab: S.wtsTab || 'home', pick: (p.models || []) }, true);
+  const note = tryOn ? `Click anything: it works like on ${nm}’s phone. Nothing you do here is saved.`
+    : `${open ? `${nm} is on shift right now: this is their live screen.` : `${nm}’s ${S.wtsTab === 'week' ? 'My week' : 'home'} screen, right now`} · <button class="btn sm" data-a="wtstab" data-v="${S.wtsTab === 'week' ? 'home' : 'week'}">Show ${S.wtsTab === 'week' ? 'Home' : 'My week'}</button>`;
+  const seesBox = `<div class="card" style="padding:16px 18px"><div class="lbl" style="margin-bottom:10px">${nm} sees</div><div class="seen">${sees.map((x) => `<div><b class="ok">✓</b>${esc(x)}</div>`).join('')}</div></div>
+    <div class="card" style="padding:16px 18px"><div class="lbl" style="margin-bottom:10px">Hidden from ${nm}</div><div class="seen">${hidden.map((x) => `<div><b style="color:var(--ac)">🔒</b>${esc(x)}</div>`).join('')}</div></div>`;
+  let right;
+  if (tryOn) {
+    const D = S.prac.done, pd = O.settings.next_pay_day ? new Date(O.settings.next_pay_day + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : null;
+    const usual = (p.models || []).filter((x) => O.models.some((y) => y.name === x));
+    const L = [
+      ['home', 'Home screen', `“Hey ${first(p.name)}”, ${r ? r.name : 'no role'}, ${pd ? 'next pay day ' + pd : 'no pay day set (Settings)'}. No money anywhere.`, !r ? 'No role yet: give them one in People.' : ''],
+      ['pick', 'Picked who they’re covering', O.models.length ? (usual.length ? `${usual.join(', ')} already picked (their usual). Change it if you like, then Clock in.` : 'Nothing pre-picked: set their usual models in People to save them a tap.') : 'No models set yet (Settings), so this step is skipped.', ''],
+      ['clockin', `Clock in: ${plural(steps + extra, 'checklist step')}`, steps + extra ? `${steps} from ${r ? r.name : 'the role'}${extra ? ` + ${extra} just for ${first(p.name)}` : ''}.` : '', steps + extra ? '' : `No checklist: add steps to ${r ? r.name : 'their role'} in Departments & roles.`],
+      ['brk', can ? 'Break works' : 'No Break button', can ? `Breaks are on ${p.breaks_override === true ? 'just for ' + first(p.name) : 'for ' + (r ? r.name + 's' : 'everyone without a role')}. Try it while clocked in.` : `Breaks are off ${p.breaks_override === false ? 'just for ' + first(p.name) : 'for ' + (r ? r.name + 's' : 'them')}, so the button doesn’t show.`, ''],
+      ['clockout', 'Clock out', 'Unticked steps get a warning, then the handover note.', ''],
+      ['week', 'My week', 'After clocking out, open My week: the practice shift shows with its hours and checklist %.', ''],
+    ];
+    if (!O.models.length) D.pick = true;
+    if (!can && D.clockin) D.brk = true;
+    const n = L.filter((x) => D[x[0]]).length, next = L.findIndex((x) => !D[x[0]]);
+    right = `<div class="card" style="padding:16px 18px"><div class="row" style="margin-bottom:6px"><span class="lbl">Test run for ${nm}</span><span class="sp"></span><span class="mu2" style="font-size:12px" id="pracn">${n} of ${L.length} checked</span></div>
+      <div class="tl">${L.map(([k, t, d, warn], i) => `<div data-step="${k}"><i class="${D[k] ? '' : i === next ? 'now' : 'o'}">${D[k] ? '✓' : i + 1}</i><div>${esc(t)}<small>${esc(d)}</small>${warn ? `<small class="warn">${esc(warn)}</small>` : ''}</div></div>`).join('')}</div>
+      ${n === L.length ? `<div class="ok" style="font-size:12.5px;font-weight:700;margin-top:8px">All checked: ${nm}’s setup works end to end.</div>` : ''}</div>
+      <div class="card" style="padding:14px 18px;display:flex;gap:12px;align-items:center"><div style="font-size:20px">🛠</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">Spot something wrong?</b> Fix it in People or Departments &amp; roles, come back, press <b style="color:var(--tx)">Reset practice</b> and run it again. Nothing here touches ${nm}’s real hours.</div></div>
+      <details class="card" style="padding:14px 18px"><summary class="lbl" style="cursor:pointer">Sees / hidden from ${nm} · ${sees.length} seen · ${hidden.length} hidden</summary><div class="col" style="gap:14px;margin-top:12px">${seesBox}</div></details>`;
+  } else {
+    right = `${seesBox}<div class="mu2" style="font-size:12px;line-height:1.55">Change their role, a checklist step or breaks and this updates on the spot. The lock is in the database, not just on screen: their ID only opens their own data, so nothing else can be dug out of the page either. Press <b style="color:var(--tx)">▶ Try it</b> to click through a whole shift as ${nm}.</div>`;
+  }
+  m.innerHTML = `${head}<div class="body"><div class="wts"><div><div class="${S.wtsMode}" id="pvbox"><div class="scr team" style="position:relative">${tryOn ? '<span class="prac">PRACTICE · NOT SAVED</span>' : ''}${screen}</div></div><div class="pv-note">${note}</div></div>
+  <div class="col" style="gap:14px">${right}${!p.last_seen ? `<div class="err" style="color:#fcd34d;background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.3)">${nm} hasn’t signed in yet.</div>` : ''}</div></div></div>`;
 }
 const gateBox = (t) => `<div class="gbox" style="margin:60px auto 0"><img src="${LOGO}" alt=""><h1>SA. Team</h1><p class="mu">${t}</p></div>`;
 
@@ -405,6 +462,8 @@ const A = {
   closedlg: () => { $('#dlg').innerHTML = ''; },
   // what they see
   wtsmode: (v) => { S.wtsMode = v; paintMain(); },
+  wtstry: (v) => { S.wtsTry = v === '1'; if (S.wtsTry) S.prac = null; paintMain(); },
+  pracreset: () => { S.prac = null; paintMain(); toast('Practice reset'); },
   wtstab: (v) => { S.wtsTab = v; paintMain(); },
   // settings
   saves: () => act(async () => { await call('t_save_settings', { p_team_name: $('#sname').value.trim(), p_pay_day: $('#spay').value || null }); await reOwner(); }, 'Saved'),
@@ -414,10 +473,10 @@ const A = {
 };
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]'); if (!el || el.disabled) return;
-  if (el.closest('#pvbox')) { e.preventDefault(); return toast('Preview only: this is their screen, not yours'); }
+  if (el.closest('#pvbox')) { e.preventDefault(); if (S.wtsTry && S.prac && PA[el.dataset.a]) { PA[el.dataset.a](el.dataset.v, el); return paintMain(); } return toast(S.wtsTry ? 'That one only works on their own phone' : 'Preview only: press ▶ Try it to click through it'); }
   const f = A[el.dataset.a]; if (f) { e.preventDefault(); f(el.dataset.v, el); }
 });
-document.addEventListener('change', (e) => { if (e.target.id === 'wtsp') { S.wts = e.target.value; paintMain(); } });
+document.addEventListener('change', (e) => { if (e.target.id === 'wtsp') { S.wts = e.target.value; S.prac = null; paintMain(); } });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'ocode') A.claim();
   if (e.key === 'Enter' && e.target.id === 'sid') A.signin();
