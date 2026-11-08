@@ -117,3 +117,14 @@ th{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mu2
 .tl i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-style:normal;font-weight:900;font-size:12px;flex:none;background:var(--ac);color:#0a0a0a}.tl i.o{background:none;border:1.5px solid var(--ln2);color:var(--mu2)}.tl i.now{background:none;border:1.5px solid var(--ac);color:var(--ac)}
 .tl small{display:block;color:var(--mu2);font-size:11.5px}.tl small.warn{color:var(--warn)}
 details>summary{list-style:none}details>summary::-webkit-details-marker{display:none}
+
+/* briefs, logins and SOPs from SA. Management */
+.bacc{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
+.bacc .ck{padding:8px 0}.ck small.how{display:block;color:var(--mu2);font-size:11.5px;text-decoration:none;margin-top:2px}
+.dbar{display:flex;gap:2px;margin:6px 0 2px}.dbar i{height:4px;flex:1;border-radius:2px;background:#2a2a2a}.dbar i.g{background:var(--ok)}.dbar i.p{background:#a78bfa}
+.lbox{background:#0d0d0d;border:1px solid #262626;border-radius:12px;padding:8px 10px;margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.lrow{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0}.lrow span{width:68px;flex:none}.lrow b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.tcard .lrow{border-top:1px solid #1f1f1f}
+.donen{color:var(--ok);font-weight:700;font-size:12.5px;margin-top:8px}.stuckn{color:var(--warn);font-size:12.5px;margin-top:8px}
+.sopr{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 0;border-bottom:1px solid #222;font-size:13px}.sopr:last-child{border-bottom:0}
+.sopbody{white-space:pre-wrap;font-size:13px;line-height:1.6;color:var(--tx)}
