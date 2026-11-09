@@ -88,7 +88,7 @@ const typing = () => document.activeElement && /INPUT|TEXTAREA|SELECT/.test(docu
 function softReload() { loadOwner().then(() => { if (!typing() && !S.busy) ownerView(); }).catch(() => {}); }
 async function loadMe() {
   const d = await call('t_me');
-  S.E = { me: d.me, role: d.role, settings: d.settings || {}, models: d.models || [], clocks: d.clocks || [], breaks: d.breaks || [], brief: d.brief || null, sops: d.sops || [], accounts: d.accounts || [], reports: d.reports || [] };
+  S.E = { me: d.me, role: d.role, settings: d.settings || {}, models: d.models || [], clocks: d.clocks || [], breaks: d.breaks || [], brief: d.brief || null, sops: d.sops || [], accounts: d.accounts || [], reports: d.reports || [], team: d.team || null, lead: d.lead || null };
   if (!S.pick) S.pick = (d.me.models || []).filter((m) => S.E.models.some((x) => x.name === m));
 }
 const roleOf = (p) => (S.O.roles || []).find((r) => r.id === p.role_id) || null;
@@ -127,7 +127,7 @@ function render() {
 // the team member's screen (also drawn read-only inside "What they see")
 // =====================================================================================================
 function teamPage() {
-  $('#app').innerHTML = `<div class="team">${teamView(S.E, { tab: S.tab, pick: S.pick, co: S.co, sop: S.sop, show: S.show, stuck: S.stuck })}</div>`; tick();
+  $('#app').innerHTML = `<div class="team">${teamView(S.E, { tab: S.tab, pick: S.pick, co: S.co, sop: S.sop, show: S.show, stuck: S.stuck, tm: S.tm, fix: S.fix })}</div>`; tick();
   const E = S.E, open = E.clocks.find((c) => !c.ended_at);
   if (open && E.brief && !E.brief.seen_at) { E.brief.seen_at = new Date().toISOString(); call('t_brief_seen').catch(() => {}); }
 }
@@ -137,7 +137,9 @@ function teamView(E, st, pv) {
   const head = `<div class="thead"><img src="${LOGO}" alt=""><b class="bric" style="font-size:16px">SA. Team</b><span class="sp"></span>${pv ? `<span class="chip">${typeof pv === 'string' ? esc(pv) : 'preview'}</span>` : '<button class="btn sm" data-a="signout">Sign out</button>'}</div>`;
   let body;
   const sop = st.sop && (E.sops || []).find((x) => x.id === st.sop);
-  if (sop) {
+  if (st.tm && E.team) {
+    body = `<button class="btn sm" data-a="tmback" style="align-self:flex-start">← Back</button>${teamPanel(E, st, pv)}`;
+  } else if (sop) {
     body = `<button class="btn sm" data-a="sopback" style="align-self:flex-start">← Back</button><div><div class="mu2" style="font-size:11.5px">SOP · updated ${dayName(ms(sop.changed_at))}</div><b class="bric" style="font-size:22px">${esc(sop.title)}</b></div><div class="tcard sopbody">${esc(sop.body || 'Nothing written yet.')}</div>`;
   } else if (open && onBreak) {
     body = `<div class="row"><span class="st br"><i></i>On break</span><span class="sp"></span><span class="mu" style="font-size:12px">${esc((open.models || []).join(', '))}</span></div>
@@ -154,12 +156,15 @@ function teamView(E, st, pv) {
       <div style="text-align:center"><div class="timer" data-t0="${t0}" data-off="${off}">${hms(Date.now() - t0 - off)}</div><div class="mu2" style="font-size:12px">since ${tm(t0)} · break ${hm(off)}</div></div>
       ${can ? '<button class="big dark" data-a="breakstart">☕ Break</button>' : ''}
       ${ckAll(open) ? `<div><div style="font-weight:700;margin-bottom:2px">Checklist <span class="mu2">${ckDone(open)}/${ckAll(open)}</span></div>${open.checklist.map((x, i) => `<button class="ck ${x.done ? 'done' : ''}" data-a="tick" data-v="${i}"><i>${x.done ? '✓' : ''}</i><span>${esc(x.t)}</span></button>`).join('')}</div>` : (E.brief ? '' : '<div class="tcard mu" style="font-size:12.5px">No checklist for your role yet.</div>')}
+      ${E.team ? `<button class="tcard row tmbtn" data-a="tmopen" style="width:100%;text-align:left"><span style="font-size:18px">👥</span><span style="flex:1"><b>My team</b><br><span class="mu2" style="font-size:12px">${tmSummary(E.team)}</span></span><span class="mu2">›</span></button>` : ''}
       ${briefBlock(E, st)}${(E.sops || []).length ? `<div class="tcard"><div style="font-weight:700;margin-bottom:4px">SOPs</div>${sopRows(E)}</div>` : ''}
       <div class="sp"></div><button class="big stop" data-a="costart">Clock out</button>`;
   } else {
-    const W = weekStats(clocks, breaks), T = [['home', 'Home'], ...((E.accounts || []).length ? [['accts', 'Accounts']] : []), ...((E.sops || []).length ? [['sops', 'SOPs']] : []), ['week', 'My week']], cur = T.some((t) => t[0] === st.tab) ? st.tab : 'home';
+    const W = weekStats(clocks, breaks), T = [['home', 'Home'], ...(E.team ? [['team', 'Team']] : []), ...((E.accounts || []).length ? [['accts', 'Accounts']] : []), ...((E.sops || []).length ? [['sops', 'SOPs']] : []), ['week', 'My week']], cur = T.some((t) => t[0] === st.tab) ? st.tab : 'home';
     const tabs = `<div class="ttabs">${T.map(([k, n]) => `<button class="${cur === k ? 'on' : ''}" data-a="ttab" data-v="${k}">${n}</button>`).join('')}</div>`;
-    if (cur === 'accts') {
+    if (cur === 'team') {
+      body = `${tabs}${teamPanel(E, st, pv)}`;
+    } else if (cur === 'accts') {
       body = `${tabs}<b class="bric" style="font-size:22px">My accounts</b><div class="mu" style="font-size:12.5px;margin-top:-8px">The logins for the accounts you work on. Keep them to yourself.</div>${E.accounts.map((a) => acctCard(a, st)).join('')}`;
     } else if (cur === 'sops') {
       body = `${tabs}<b class="bric" style="font-size:22px">SOPs</b><div class="tcard">${sopRows(E)}</div>`;
@@ -172,7 +177,7 @@ function teamView(E, st, pv) {
         <div class="mu2" style="text-align:center;font-size:11px">No pay figures here · your payslip comes on pay day</div>`;
     } else {
       const pd = settings.next_pay_day ? new Date(settings.next_pay_day + 'T12:00:00') : null;
-      body = `${tabs}<div><div class="mu" style="font-size:12px">${new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</div><b class="bric" style="font-size:24px">Hey ${esc(first(me.name))} 👋</b><div style="margin-top:6px">${chip(role)}</div></div>
+      body = `${tabs}<div><div class="mu" style="font-size:12px">${new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</div><b class="bric" style="font-size:24px">Hey ${esc(first(me.name))} 👋</b><div style="margin-top:6px">${chip(role)}${E.lead ? ` <span class="mu2" style="font-size:12px">reports to ${esc(E.lead.name)}</span>` : ''}</div></div>
         <div class="tcard"><div style="font-weight:700;margin-bottom:8px">This week</div><div class="tiles">${tileH(hm(W.work), 'worked')}${tileH(String(W.shifts), 'shifts')}${tileH(W.pct == null ? '—' : W.pct + '%', 'checklists')}</div></div>
         <div class="tcard row" style="gap:12px;align-items:flex-start"><div style="font-size:22px">🗓</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${pd ? 'Next pay day: ' + pd.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'Pay day'}</b><br>Your payslip shows up here once it’s marked paid.</div></div>
         ${E.brief ? `<div class="tcard row" style="gap:12px;align-items:flex-start;border-color:#3a4a14"><div style="font-size:22px">📋</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${esc(E.brief.title)}</b><br>${plural(((E.brief.body || {}).accounts || []).length, 'account')} to work on${E.brief.mode === 'clockin' ? ', ready when you clock in' : ''}. Clock in to start.</div></div>` : ''}
@@ -214,6 +219,38 @@ function briefBlock(E, st) {
     ${A.length ? A.map(card).join('') : '<div class="tcard mu" style="font-size:12.5px">No accounts on your brief today.</div>'}
     ${notes.length ? `<div class="tcard" style="margin-top:2px"><div style="font-weight:700;margin-bottom:4px">Rules</div>${notes.map((t) => `<div class="mu" style="font-size:12.5px;padding:2px 0">• ${esc(t)}</div>`).join('')}</div>` : ''}</div>`;
 }
+// ---- a lead's “My team”: only the people and the parts their role was given ----
+const SCOPE = { self: 'Only themselves', people: 'Their people', dept: 'Their department', all: 'Everyone' };
+const SCOPE_SUB = { people: 'people who report to you', dept: 'your department', all: 'everyone on the team' };
+const POWERS = [['live', 'Live floor: who’s on, breaks, timers'], ['handins', 'Hand-ins: Done / Stuck reports'], ['progress', 'Checklist + brief progress'], ['hours', 'Hours this week (never pay)'], ['fixclock', 'Fix forgotten clock-outs'], ['handover', 'Handover notes']];
+function tmSummary(T) { const on = T.powers.live ? T.people.filter((p) => T.clocks.some((c) => c.person_id === p.id && !c.ended_at)).length : null; return `${plural(T.people.length, 'person')}${on != null ? ` · ${on} on now` : ''}`; }
+function teamPanel(E, st, pv) { const T = E.team, pw = T.powers, wk = weekStart();
+  const card = (p) => { const cl = T.clocks.filter((c) => c.person_id === p.id), open = cl.find((c) => !c.ended_at), br = open && T.breaks.find((b) => b.clock_id === open.id && !b.ended_at), last = cl.find((c) => c.ended_at);
+    const brief = (T.briefs || []).find((b) => b.person_id === p.id), bt = brief ? brief.accounts.reduce((t, a) => t + a.steps, 0) : 0, bd = brief ? brief.accounts.reduce((t, a) => t + Object.values((brief.ticks || {})[`${a.key}@${a.day == null ? 0 : a.day}`] || {}).filter(Boolean).length, 0) : 0;
+    const hrs = cl.reduce((t, c) => t + workedBetween(c, T.breaks, wk, wk + 7 * DAY), 0), ho = cl.find((c) => c.handover);
+    return `<div class="tcard tmp"><div class="row">${av(p.name, 30)}<div style="flex:1;min-width:0"><b>${esc(p.name)}</b> ${p.role ? `<span class="chip" style="color:${esc(p.role.color)};background:${esc(p.role.color)}22">${esc(p.role.name)}</span>` : ''}
+      ${pw.live ? `<div>${open ? (br ? `<span class="st br"><i></i>Break <span data-t0="${ms(br.started_at)}" data-fmt="hm">${hm(Date.now() - ms(br.started_at))}</span></span>` : `<span class="st on"><i></i>On · <span data-t0="${ms(open.started_at)}" data-off="${(open.break_secs || 0) * 1000}" data-fmt="hm">${hm(Date.now() - ms(open.started_at))}</span></span>`) : `<span class="st off"><i></i>${last ? 'Off · last on ' + ago(ms(last.ended_at)) : p.last_seen ? 'Off' : 'Hasn’t signed in yet'}</span>`}</div>` : ''}</div>${pw.hours ? `<b class="mono" style="font-size:12.5px">${hm(hrs)}</b>` : ''}</div>
+      ${pw.progress ? `${open && ckAll(open) ? `<div class="mu2" style="font-size:11.5px;margin-top:8px">Checklist ${ckDone(open)}/${ckAll(open)}</div><div class="bar"><i style="width:${(ckDone(open) / ckAll(open)) * 100}%"></i></div>` : ''}${brief && bt ? `<div class="mu2" style="font-size:11.5px;margin-top:8px">Brief ${bd}/${bt}${brief.seen_at ? '' : ' · not opened yet'}</div><div class="bar"><i style="width:${(bd / bt) * 100}%"></i></div>` : ''}` : ''}
+      ${pw.handover && ho ? `<div class="mu" style="font-size:12px;margin-top:8px">“${esc(ho.handover.slice(0, 140))}${ho.handover.length > 140 ? '…' : ''}” <span class="mu2">· ${ago(ms(ho.ended_at))}</span></div>` : ''}
+      ${pw.fixclock ? cl.filter((c) => c.auto_closed).map((c) => st.fix === c.id ? `<div class="fixb"><div class="mu2" style="font-size:11.5px">Fix ${dayName(ms(c.started_at))}: when did they really start and stop?</div><div class="row" style="gap:6px;margin-top:6px"><input type="datetime-local" id="fx-in" value="${locT(c.started_at)}"><input type="datetime-local" id="fx-out" value="${locT(c.ended_at)}"></div><div class="row" style="margin-top:6px"><button class="btn sm pri" data-a="fxsave" data-v="${c.id}">Save</button><button class="btn sm" data-a="fxno">Cancel</button></div></div>`
+        : `<div class="row fixr"><span class="warn" style="font-size:12px">⚠ Forgot to clock out ${dayName(ms(c.started_at))} (capped at 16h)</span><button class="btn sm" data-a="fxopen" data-v="${c.id}">Fix</button></div>`).join('') : ''}</div>`; };
+  const ev = pw.handins ? (T.reports || []) : [];
+  return `<div><b class="bric" style="font-size:22px">My team</b><div class="mu" style="font-size:12.5px">${SCOPE_SUB[T.scope] || ''} · ${plural(T.people.length, 'person')}</div></div>
+    ${T.people.map(card).join('')}
+    ${pw.handins ? `<div class="tcard"><div style="font-weight:700;margin-bottom:6px">Hand-ins</div>${ev.length ? ev.map((r) => { const p = T.people.find((x) => x.id === r.person_id); return `<div class="row" style="font-size:12.5px;padding:5px 0;border-top:1px solid #1f1f1f;align-items:flex-start"><span>${r.kind === 'done' ? '✅' : '⚠'}</span><span style="flex:1"><b>${esc(p ? first(p.name) : '?')}</b> · ${esc(r.handle || 'account')}${r.day ? ' day ' + r.day : ''} ${r.kind === 'done' ? 'done' : 'stuck'}${r.note ? `<div class="mu2">“${esc(r.note)}”</div>` : ''}</span><span class="mu2">${tm(ms(r.at))}</span></div>`; }).join('') : '<div class="mu2" style="font-size:12.5px">Nothing in the last 2 days.</div>'}</div>` : ''}
+    <div class="mu2" style="font-size:11.5px;text-align:center">Sola decides what you see here. Never: pay, rates or other people’s logins.</div>`; }
+const locT = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+// the same view, worked out on the owner's side for What they see
+function visibleFor(p) { const O = S.O, r = (O.roles || []).find((x) => x.id === p.role_id); if (!r || (r.scope || 'self') === 'self' || !Object.keys(r.powers || {}).length) return [];
+  const P = O.people.filter((x) => !x.gone);
+  if (r.scope === 'people') { const out = new Set(), walk = (id) => P.filter((x) => x.lead_id === id).forEach((x) => { if (!out.has(x.id) && x.id !== p.id) { out.add(x.id); walk(x.id); } }); walk(p.id); return [...out]; }
+  if (r.scope === 'dept') return P.filter((x) => !x.is_owner && x.id !== p.id && r.department_id && ((O.roles.find((y) => y.id === x.role_id) || {}).department_id === r.department_id)).map((x) => x.id);
+  return P.filter((x) => !x.is_owner && x.id !== p.id).map((x) => x.id); }
+function teamFor(p) { const O = S.O, r = (O.roles || []).find((x) => x.id === p.role_id), ids = visibleFor(p); if (!r || !ids.length) return null; const pw = r.powers || {};
+  return { scope: r.scope, powers: pw, people: O.people.filter((x) => ids.includes(x.id)).map((x) => { const rr = O.roles.find((y) => y.id === x.role_id); return { id: x.id, name: x.name, active: x.active, last_seen: x.last_seen, role: rr ? { name: rr.name, color: rr.color } : null }; }),
+    clocks: O.clocks.filter((c) => ids.includes(c.person_id)).map((c) => ({ ...c, checklist: pw.progress ? c.checklist : null, handover: pw.handover ? c.handover : null })), breaks: pw.live ? O.breaks.filter((b) => ids.includes(b.person_id)) : [],
+    briefs: pw.progress ? (O.briefs || []).filter((b) => ids.includes(b.person_id)).map((b) => ({ person_id: b.person_id, title: b.title, seen_at: b.seen_at, ticks: b.ticks, accounts: ((b.body || {}).accounts || []).map((a) => ({ key: a.key, handle: a.handle, day: a.day == null ? null : a.day, steps: (a.steps || []).length })) })) : [],
+    reports: pw.handins ? (O.reports || []).filter((x) => ids.includes(x.person_id) && Date.now() - ms(x.at) < 2 * DAY) : [] }; }
 const tileH = (a, b) => `<div class="tile"><b>${esc(a)}</b><div>${esc(b)}</div></div>`;
 
 // =====================================================================================================
@@ -293,6 +330,7 @@ function personEditor(p) {
     ${isNew ? '' : `<div class="fr"><span>Employee ID<small>their sign-in; shown only when made</small></span><div class="row"><span class="mu" style="font-size:12.5px">${p.has_id ? 'Set' + (p.code_made_at ? ' · made ' + dayName(ms(p.code_made_at)) : '') : '<span class="warn">None</span>'}</span><button class="btn sm" data-a="newid" data-v="${p.id}">${p.has_id ? 'New ID (old one stops working)' : 'Make an ID'}</button></div></div>`}
     ${p.is_owner ? '' : `<div class="fr"><span>Discord @<small>optional, just for you</small></span><input id="pdisc" value="${esc(p.discord || '')}" maxlength="40" placeholder="jaychats"></div>`}
     ${p.is_owner ? '' : `<div class="fr"><span>Role</span><select id="prole"><option value="">No role</option>${O.roles.map((x) => `<option value="${x.id}" ${x.id === p.role_id ? 'selected' : ''}>${esc(x.name)}${deptOf(x) ? ' · ' + esc(deptOf(x).name) : ''}</option>`).join('')}</select></div>
+    ${p.lead_id ? `<div class="fr"><span>Reports to<small>from SA. Management</small></span><span class="mu" style="font-size:13px">${esc((O.people.find((x) => x.id === p.lead_id) || {}).name || '—')}</span></div>` : ''}
     <div class="fr"><span>Usually covers<small>pre-picked when they clock in</small></span><div class="mchips" id="pmodels">${O.models.length ? O.models.map((x) => `<button class="${(p.models || []).includes(x.name) ? 'on' : ''}" data-a="pmodel" data-v="${esc(x.name)}">${esc(x.name)}</button>`).join('') : '<span class="mu2" style="font-size:12px">Add models in Settings</span>'}</div></div>
     <div class="fr"><span>Breaks</span><select id="pbreaks"><option value="" ${p.breaks_override == null ? 'selected' : ''}>Follow the role (${r ? (r.breaks_on ? 'on' : 'off') : 'on'})</option><option value="on" ${p.breaks_override === true ? 'selected' : ''}>On, just for ${esc(first(p.name) || 'them')}</option><option value="off" ${p.breaks_override === false ? 'selected' : ''}>Off, just for ${esc(first(p.name) || 'them')}</option></select></div>
     <div class="fr" style="align-items:start"><span>Extra checklist steps<small>on top of the ${r ? esc(r.name) : 'role'} checklist${r ? ` (${(r.checklist || []).length})` : ''}</small></span>${stepsEd('pext', p.extra_checklist)}</div>
@@ -317,7 +355,7 @@ function rolesView(m) {
   else if (kind === 'd') { const d = O.departments.find((x) => x.id === id); if (d) ed = deptEd(d); }
   else if (kind === 'r') { const r = O.roles.find((x) => x.id === id); if (r) ed = roleEd(r); }
   m.innerHTML = `${topBar('Departments & roles', `${plural(O.departments.length, 'department')} · ${plural(O.roles.length, 'role')}`, '<button class="btn" data-a="newd">+ Department</button><button class="btn pri" data-a="newr">+ Role</button>')}
-  <div class="body"><div class="split"><div class="card lst">${groups.filter((g) => g.d || g.roles.length).map((g) => `${g.d ? `<button class="li ${sel === 'd:' + g.d.id ? 'on' : ''}" data-a="seld" data-v="d:${g.d.id}"><span style="width:10px;height:10px;border-radius:3px;background:${esc(g.d.color)}"></span><b>${esc(g.d.name)}</b><small style="margin-left:auto">${plural(g.roles.length, 'role')}</small></button>` : '<div class="lbl" style="padding:8px 10px 2px">No department</div>'}${g.roles.map((r) => `<button class="li ${sel === 'r:' + r.id ? 'on' : ''}" data-a="seld" data-v="r:${r.id}" style="padding-left:28px">${chip(r)}<small style="margin-left:auto">${plural(O.people.filter((p) => p.role_id === r.id && p.active).length, 'person')}</small></button>`).join('')}`).join('') || '<div class="mu" style="padding:12px;font-size:12.5px">Nothing yet.</div>'}</div>${ed}</div></div>`;
+  <div class="body"><div class="split"><div class="card lst">${groups.filter((g) => g.d || g.roles.length).map((g) => `${g.d ? `<button class="li ${sel === 'd:' + g.d.id ? 'on' : ''}" data-a="seld" data-v="d:${g.d.id}"><span style="width:10px;height:10px;border-radius:3px;background:${esc(g.d.color)}"></span><b>${esc(g.d.name)}</b><small style="margin-left:auto">${plural(g.roles.length, 'role')}</small></button>` : '<div class="lbl" style="padding:8px 10px 2px">No department</div>'}${g.roles.map((r) => `<button class="li ${sel === 'r:' + r.id ? 'on' : ''}" data-a="seld" data-v="r:${r.id}" style="padding-left:28px">${chip(r)}<small style="margin-left:auto">${r.ext_id ? 'L' + (r.level || 1) + ' · ' : ''}${(r.scope || 'self') !== 'self' && Object.keys(r.powers || {}).length ? '👁 ' + SCOPE[r.scope].toLowerCase() + ' · ' : ''}${plural(O.people.filter((p) => p.role_id === r.id && p.active).length, 'person')}</small></button>`).join('')}`).join('') || '<div class="mu" style="padding:12px;font-size:12.5px">Nothing yet.</div>'}</div>${ed}</div></div>`;
 }
 const SW = ['#c4b5fd', '#f9a8d4', '#93c5fd', '#86efac', '#fcd34d', '#fdba74', '#a5f3fc', '#fda4af', '#c6ff4d', '#d4d4d8'];
 const swatches = (cur) => `<div class="mchips" id="xcolor" data-v="${esc(cur)}">${SW.map((c) => `<button data-a="color" data-v="${c}" style="width:28px;padding:0;background:${c};${c === cur ? 'box-shadow:0 0 0 2px #fff' : ''}"></button>`).join('')}</div>`;
@@ -329,14 +367,21 @@ function deptEd(d) {
 }
 function roleEd(r) {
   const O = S.O, isNew = r.id === 'new', ppl = O.people.filter((p) => p.role_id === r.id && p.active);
-  return `<div class="card ed" id="red" data-id="${r.id}"><div class="row"><b class="bric" style="font-size:20px">${isNew ? 'New role' : esc(r.name)}</b>${isNew ? '' : `<span class="mu2" style="font-size:12px">${plural(ppl.length, 'person')}${ppl.length ? ': ' + ppl.map((p) => esc(first(p.name))).join(', ') : ''}</span>`}</div>
-    <div class="fr"><span>Name</span><input id="rname" value="${esc(r.name)}" maxlength="60" placeholder="Chatter"></div>
-    <div class="fr"><span>Department</span><select id="rdept"><option value="">None</option>${O.departments.map((d) => `<option value="${d.id}" ${d.id === r.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div>
+  const syn = !!r.ext_id, sc = r.scope || 'self', pw = r.powers || {};
+  return `<div class="card ed" id="red" data-id="${r.id}"><div class="row"><b class="bric" style="font-size:20px">${isNew ? 'New role' : esc(r.name)}</b>${syn ? '<span class="sync">synced</span>' : ''}${isNew ? '' : `<span class="mu2" style="font-size:12px">${syn ? `level ${r.level || 1} · ` : ''}${plural(ppl.length, 'person')}${ppl.length ? ': ' + ppl.map((p) => esc(first(p.name))).join(', ') : ''}</span>`}</div>
+    ${syn ? '<div class="mu2" style="font-size:12px;margin-top:-6px">Name, department and level come from SA. Management: change them there. Checklist, breaks and authority are set here.</div>' : ''}
+    <div class="fr"><span>Name</span><input id="rname" value="${esc(r.name)}" maxlength="60" placeholder="Chatter" ${syn ? 'disabled' : ''}></div>
+    <div class="fr"><span>Department</span><select id="rdept" ${syn ? 'disabled' : ''}><option value="">None</option>${O.departments.map((d) => `<option value="${d.id}" ${d.id === r.department_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div>
     <div class="fr"><span>Colour</span>${swatches(r.color)}</div>
     <div class="fr"><span>Breaks<small>someone can still be set differently</small></span><label class="row" style="cursor:pointer"><button class="tg ${r.breaks_on ? 'on' : ''}" data-a="rtoggle" id="rbreaks"></button><span class="mu" style="font-size:12.5px">${r.breaks_on ? 'On' : 'Off'}</span></label></div>
     <div class="fr" style="align-items:start"><span>Shift checklist<small>every shift starts with these</small></span>${stepsEd('rsteps', r.checklist)}</div>
-    <div class="mu2" style="font-size:12px">Checklist changes apply from the next clock-in. Pay for roles comes in phase 4 and is never shown to the team.</div><div id="rerr"></div>
-    <div class="row"><button class="btn pri" data-a="saver">${isNew ? 'Make the role' : 'Save'}</button><span class="sp"></span>${isNew ? '' : '<button class="btn bad" data-a="delr">Delete</button>'}</div></div>`;
+    <div class="mu2" style="font-size:12px">Checklist changes apply from the next clock-in. Pay for roles comes in phase 4 and is never shown to the team.</div>
+    ${isNew ? '' : `<div style="padding-top:6px"><b style="font-size:15px">Authority</b> <span class="mu2" style="font-size:12.5px">what this role sees beyond their own shift</span></div>
+    <div class="fr"><span>They can see<small>who counts as “theirs”</small></span><div class="seg3" id="rscope" data-v="${sc}">${Object.entries(SCOPE).map(([k, n]) => `<button class="${sc === k ? 'on' : ''}" data-a="rscope" data-v="${k}">${n}</button>`).join('')}</div></div>
+    <div class="mu2" style="font-size:12px;margin:-6px 0 0">Their people = whoever reports to them in SA. Management (and their people’s people).</div>
+    <div class="fr" style="align-items:start"><span>And they get<small>pick any</small></span><div class="pw2" id="rpowers">${POWERS.map(([k, n]) => `<label class="ck2"><input type="checkbox" data-k="${k}" ${pw[k] ? 'checked' : ''}>${n}</label>`).join('')}</div></div>
+    <div class="lockr">🔒 Never, whatever you tick: pay, rates, commission, logins, your notes, Settings, People editing.</div>`}<div id="rerr"></div>
+    <div class="row"><button class="btn pri" data-a="saver">${isNew ? 'Make the role' : 'Save'}</button>${isNew ? '' : `<button class="btn" data-a="rwts" data-v="${r.id}">${svg('eye').replace('<svg', '<svg style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8"')} What a ${esc(r.name)} sees</button>`}<span class="sp"></span>${isNew || syn ? '' : '<button class="btn bad" data-a="delr">Delete</button>'}</div></div>`;
 }
 
 // ---- Briefs & SOPs (sent from SA. Management) ----
@@ -359,7 +404,7 @@ function teamDataFor(p) {
   const O = S.O;
   const brief = (O.briefs || []).find((b) => b.person_id === p.id) || null;
   return { me: p, role: roleOf(p), settings: O.settings, models: O.models, clocks: O.clocks.filter((c) => c.person_id === p.id), breaks: O.breaks.filter((b) => b.person_id === p.id),
-    brief, sops: (O.sops || []).filter((s) => s.everyone || (brief && (brief.sops || []).includes(s.id))), accounts: (O.accounts || []).filter((a) => a.person_id === p.id), reports: (O.reports || []).filter((r) => r.person_id === p.id && Date.now() - ms(r.at) < 2 * DAY) };
+    team: teamFor(p), lead: (() => { const l = O.people.find((x) => x.id === p.lead_id); return l ? { name: l.name } : null; })(), brief, sops: (O.sops || []).filter((s) => s.everyone || (brief && (brief.sops || []).includes(s.id))), accounts: (O.accounts || []).filter((a) => a.person_id === p.id), reports: (O.reports || []).filter((r) => r.person_id === p.id && Date.now() - ms(r.at) < 2 * DAY) };
 }
 // ---- practice ("Try it"): their real screen code, their real setup, nothing saved ----
 function pracNew(p) {
@@ -368,7 +413,7 @@ function pracNew(p) {
 }
 const pracOpen = () => S.prac.E.clocks.find((c) => !c.ended_at);
 const PA = {
-  ttab: (v) => { S.prac.st.tab = v; if (v === 'week' && S.prac.done.clockout) S.prac.done.week = true; if (v === 'accts') S.prac.done.accts = true; },
+  ttab: (v) => { S.prac.st.tab = v; if (v === 'team') S.prac.done.team = true; if (v === 'week' && S.prac.done.clockout) S.prac.done.week = true; if (v === 'accts') S.prac.done.accts = true; },
   pick: (v) => { const k = S.prac.st.pick.indexOf(v); if (k >= 0) S.prac.st.pick.splice(k, 1); else S.prac.st.pick.push(v); },
   clockin: () => {
     const P = S.prac, E = P.E; if (E.models.length && !P.st.pick.length) return toast('Pick who you’re covering first.', 2500);
@@ -381,6 +426,11 @@ const PA = {
   tick: (v) => { const c = pracOpen(); c.checklist[+v].done = !c.checklist[+v].done; },
   costart: () => { S.prac.st.co = true; S.prac.st.note = ''; },
   sopopen: (v) => { S.prac.st.sop = v; S.prac.done.sop = true; },
+  tmopen: () => { S.prac.st.tm = true; S.prac.done.team = true; },
+  tmback: () => { S.prac.st.tm = false; S.prac.st.fix = null; },
+  fxopen: (v) => { S.prac.st.fix = v; },
+  fxno: () => { S.prac.st.fix = null; },
+  fxsave: () => { S.prac.st.fix = null; toast('Shift fixed (practice, not saved)'); },
   sopback: () => { S.prac.st.sop = null; },
   showlog: (v) => { const s = S.prac.st.show, k = s.indexOf(v); if (k >= 0) s.splice(k, 1); else s.push(v); },
   copyv: () => toast('Copies on their phone (practice)'),
@@ -408,7 +458,8 @@ function wtsView(m) {
   const sees = [`Their name, “${r ? r.name : 'No role'}” and the date`, `Their own hours, shifts and checklist score this week`, `Clock in / out${can ? ', breaks' : ' (no breaks: ' + (p.breaks_override === false ? 'off just for them' : 'off for the role') + ')'}`, `A checklist of ${plural(steps + extra, 'step')} each shift${extra ? ` (${steps} from the role + ${extra} just for ${first(p.name)})` : ''}`, `Models to pick: ${O.models.map((x) => x.name).join(', ') || 'none set'}${(p.models || []).length ? ` (pre-picked: ${p.models.join(', ')})` : ''}`, O.settings.next_pay_day ? `The next pay day date (${O.settings.next_pay_day})` : 'A pay day card with no date (set one in Settings)', 'Their own handover notes',
     live.brief ? `Today’s brief from SA. Management: ${plural(((live.brief.body || {}).accounts || []).length, 'account')}, with Done / Something stopped me buttons` : 'No brief yet (send one from SA. Management → Briefs)',
     live.accounts.length ? `Logins for their own ${plural(live.accounts.length, 'account')}: ${live.accounts.map((a) => a.handle).join(', ')}` : 'No account logins (none assigned to them in SA. Management)',
-    live.sops.length ? `SOPs: ${live.sops.map((x) => x.title).join(', ')}` : 'No SOPs'];
+    live.sops.length ? `SOPs: ${live.sops.map((x) => x.title).join(', ')}` : 'No SOPs',
+    live.team ? `My team: ${plural(live.team.people.length, 'person')} (${SCOPE[live.team.scope].toLowerCase()}) · ${POWERS.filter(([k]) => live.team.powers[k]).map(([, n]) => n.split(':')[0].replace(' (never pay)', '').toLowerCase()).join(', ')}` : 'Only their own shift (no authority)'];
   const hidden = ['Any rate, commission, sales or pay total (until you send payslips in phase 4)', 'Anyone else: names, hours, shifts or notes', 'Anyone else’s accounts, logins or brief', 'Live floor, People, Departments & roles, Settings', 'Your private note about them', 'Their own employee ID (nobody can read it back, not even you)'];
   const tryOn = !!S.wtsTry && p.active;
   if (tryOn && (!S.prac || S.prac.pid !== p.id)) pracNew(p);
@@ -429,6 +480,7 @@ function wtsView(m) {
       ['pick', 'Picked who they’re covering', O.models.length ? (usual.length ? `${usual.join(', ')} already picked (their usual). Change it if you like, then Clock in.` : 'Nothing pre-picked: set their usual models in People to save them a tap.') : 'No models set yet (Settings), so this step is skipped.', ''],
       ['clockin', `Clock in: ${plural(steps + extra, 'checklist step')}`, steps + extra ? `${steps} from ${r ? r.name : 'the role'}${extra ? ` + ${extra} just for ${first(p.name)}` : ''}.` : '', steps + extra ? '' : `No checklist: add steps to ${r ? r.name : 'their role'} in Departments & roles.`],
       ...(live.brief ? [['brief', `Today’s brief: ${plural(((live.brief.body || {}).accounts || []).length, 'account')}`, 'While clocked in: tick a step, press Day N done or Something stopped me. In practice nothing reaches SA. Management.', ((live.brief.body || {}).accounts || []).length ? '' : 'The brief has no accounts: assign some in SA. Management.']] : []),
+      ...(live.team ? [['team', `My team: ${plural(live.team.people.length, 'person')}`, `Open Team (or “My team” on shift): ${SCOPE[live.team.scope].toLowerCase()}, only what you ticked for ${r ? r.name : 'the role'}.`, '']] : []),
       ...(live.accounts.length ? [['accts', `Accounts tab: ${plural(live.accounts.length, 'login')}`, 'Off shift, open Accounts. Their real passwords only show on their phone.', '']] : []),
       ['brk', can ? 'Break works' : 'No Break button', can ? `Breaks are on ${p.breaks_override === true ? 'just for ' + first(p.name) : 'for ' + (r ? r.name + 's' : 'everyone without a role')}. Try it while clocked in.` : `Breaks are off ${p.breaks_override === false ? 'just for ' + first(p.name) : 'for ' + (r ? r.name + 's' : 'them')}, so the button doesn’t show.`, ''],
       ['clockout', 'Clock out', 'Unticked steps get a warning, then the handover note.', ''],
@@ -492,6 +544,11 @@ const A = {
   ttab: (v) => { S.tab = v; S.sop = null; teamPage(); },
   sopopen: (v) => { S.sop = v; teamPage(); window.scrollTo(0, 0); },
   sopback: () => { S.sop = null; teamPage(); },
+  tmopen: () => { S.tm = true; teamPage(); window.scrollTo(0, 0); },
+  tmback: () => { S.tm = false; S.fix = null; teamPage(); },
+  fxopen: (v) => { S.fix = v; teamPage(); },
+  fxno: () => { S.fix = null; teamPage(); },
+  fxsave: (v) => act(async () => { const a = $('#fx-in').value, z = $('#fx-out').value; if (!a || !z) throw new Error('Set both times.'); await call('t_lead_fix_clock', { p_cid: v, p_start: new Date(a).toISOString(), p_end: new Date(z).toISOString() }); S.fix = null; await reTeam(); }, 'Shift fixed'),
   showlog: (v) => { S.show = S.show || []; const k = S.show.indexOf(v); if (k >= 0) S.show.splice(k, 1); else S.show.push(v); teamPage(); },
   copyv: async (v, el) => { try { await navigator.clipboard.writeText(v); toast((el && el.dataset.k === 'password' ? 'Password' : 'Login') + ' copied'); } catch { toast('Couldn’t copy: tap Show and copy it by hand', 4000); } },
   btick: (v) => act(async () => { const [k, i] = v.split('|'), t = (S.E.brief.ticks || {})[k] || {}; S.E.brief.ticks = await call('t_brief_tick', { p_key: k, p_idx: +i, p_done: !t[i] }); teamPage(); }),
@@ -545,7 +602,11 @@ const A = {
   rtoggle: (v, el) => { el.classList.toggle('on'); el.nextElementSibling.textContent = el.classList.contains('on') ? 'On' : 'Off'; },
   saved: () => act(async () => { const id = $('#ded').dataset.id, name = $('#dname').value.trim(); if (!name) throw new Error('Name it.'); const r = await call('t_save_department', { p_did: id === 'new' ? null : id, p_name: name, p_color: $('#xcolor').dataset.v }); S.rsel = 'd:' + r.id; await reOwner(); }, 'Saved'),
   deld: async () => { const id = $('#ded').dataset.id, d = S.O.departments.find((x) => x.id === id); if (!d || !(await ask(`Delete ${d.name}?`, 'Its roles stay, under “No department”.', 'Delete', true))) return; act(async () => { await call('t_remove_department', { p_did: id }); S.rsel = null; await reOwner(); }, 'Deleted'); },
-  saver: () => act(async () => { const id = $('#red').dataset.id, name = $('#rname').value.trim(); if (!name) throw new Error('Name the role.'); const r = await call('t_save_role', { p_rid: id === 'new' ? null : id, p_name: name, p_dept: $('#rdept').value || null, p_color: $('#xcolor').dataset.v, p_breaks: $('#rbreaks').classList.contains('on'), p_checklist: readSteps('rsteps') }); S.rsel = 'r:' + r.id; await reOwner(); }, 'Saved'),
+  saver: () => act(async () => { const id = $('#red').dataset.id, name = $('#rname').value.trim(); if (!name) throw new Error('Name the role.'); const r = await call('t_save_role', { p_rid: id === 'new' ? null : id, p_name: name, p_dept: $('#rdept').value || null, p_color: $('#xcolor').dataset.v, p_breaks: $('#rbreaks').classList.contains('on'), p_checklist: readSteps('rsteps') });
+    if (id !== 'new' && $('#rscope')) { const pw = {}; document.querySelectorAll('#rpowers input').forEach((x) => { if (x.checked) pw[x.dataset.k] = true; }); await call('t_role_authority', { p_rid: r.id, p_scope: $('#rscope').dataset.v, p_powers: pw }); }
+    S.rsel = 'r:' + r.id; await reOwner(); }, 'Saved'),
+  rscope: (v, el) => { const b = el.closest('#rscope'); b.dataset.v = v; b.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v)); },
+  rwts: (v) => { const p = S.O.people.find((x) => x.role_id === v && !x.is_owner && x.active) || S.O.people.find((x) => x.role_id === v && !x.is_owner); if (!p) return toast('Nobody has this role yet. Give someone the role in People (or SA. Management), then look.', 4500); S.wts = p.id; S.wtsTry = false; setPage('wts'); ownerView(); },
   delr: async () => { const id = $('#red').dataset.id, r = S.O.roles.find((x) => x.id === id), n = S.O.people.filter((p) => p.role_id === id).length; if (!r || !(await ask(`Delete the ${r.name} role?`, n ? `${plural(n, 'person')} will have no role (and no checklist) until you give them one.` : 'Nobody has it.', 'Delete', true))) return; act(async () => { await call('t_remove_role', { p_rid: id }); S.rsel = null; await reOwner(); }, 'Deleted'); },
   closedlg: () => { $('#dlg').innerHTML = ''; },
   // what they see
