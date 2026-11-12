@@ -1,6 +1,5 @@
-// Where SA. Team keeps its data. Both values are meant to be public: what anyone can read or change is decided
-// by the rules inside the database, not by hiding these.
+// Where SA. Team keeps its data: your Cloudflare Worker. The address is meant to be public: what anyone can read or change
+// is decided by the rules inside the Worker (every call checks the employee ID first), not by hiding this.
 window.SA_CONFIG = {
-  url: 'https://keyuhyjbtcagrtmagjbl.supabase.co',
-  key: 'sb_publishable_aidi4nQxzw068dIqsh6RWQ_7Sm2lF1Z',
+  url: 'https://sa-team.aadesholaadekanbi.workers.dev',
 };

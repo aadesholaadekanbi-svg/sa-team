@@ -3,9 +3,12 @@
 // decides what that person may see or change; this page only asks. Pay never reaches a team member's screen.
 'use strict';
 const CFG = window.SA_CONFIG || {};
-const sb = window.SA_FAKE ? null : window.supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
 const ERR = { BAD_ID: 'That ID doesn’t work. Check it, or ask Sola for a new one.', OFF: 'Your access is switched off.', NOT_OWNER: 'Only the owner can do that.' };
-const raw = window.SA_FAKE ? window.SA_FAKE.rpc : async (n, a) => { const { data, error } = await sb.rpc(n, a || {}); if (error) throw new Error(error.message || 'Something went wrong'); return data; };
+const raw = window.SA_FAKE ? window.SA_FAKE.rpc : async (n, a) => {
+  let r; try { r = await fetch(String(CFG.url || '').replace(/\/+$/, '') + '/rpc/' + n, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(a || {}) }); }
+  catch { throw new Error('Can’t reach SA. Team. Check your connection.'); }
+  const j = await r.json().catch(() => null); if (!r.ok) throw new Error((j && j.message) || 'Something went wrong'); return j;
+};
 async function rpc(n, a) { try { return await raw(n, a); } catch (e) { const m = String(e.message || '').trim(); const err = new Error(ERR[m] || m || 'Something went wrong'); err.code = ERR[m] ? m : null; throw err; } }
 const ID = { get() { try { return localStorage.getItem('sa.id') || ''; } catch { return S.memId || ''; } }, set(v) { S.memId = v; try { if (v) localStorage.setItem('sa.id', v); else localStorage.removeItem('sa.id'); } catch { /* private mode: kept in memory */ } } };
 const call = (n, a = {}) => rpc(n, { p_id: ID.get(), ...a });
@@ -46,6 +49,7 @@ const I = {
   dep: '<rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v5M5 17v-3h14v3"/>',
   sop: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  msg: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>',
   key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2M16 7l3 3M18 5l2 2"/>',
   dc: '<path d="M8 12h.01M16 12h.01M6 5c2-1 4-1.5 6-1.5S16 4 18 5c2 3 3 6.5 2.5 11-1.5 1.2-3 2-4.5 2.5l-1-2M6 5C4 8 3 11.5 3.5 16c1.5 1.2 3 2 4.5 2.5l1-2"/>',
   set: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
@@ -88,7 +92,7 @@ const typing = () => document.activeElement && /INPUT|TEXTAREA|SELECT/.test(docu
 function softReload() { loadOwner().then(() => { if (!typing() && !S.busy) ownerView(); }).catch(() => {}); }
 async function loadMe() {
   const d = await call('t_me');
-  S.E = { me: d.me, role: d.role, settings: d.settings || {}, models: d.models || [], clocks: d.clocks || [], breaks: d.breaks || [], brief: d.brief || null, sops: d.sops || [], accounts: d.accounts || [], reports: d.reports || [], team: d.team || null, lead: d.lead || null };
+  S.E = { me: d.me, role: d.role, settings: d.settings || {}, models: d.models || [], clocks: d.clocks || [], breaks: d.breaks || [], brief: d.brief || null, sops: d.sops || [], accounts: d.accounts || [], reports: d.reports || [], team: d.team || null, lead: d.lead || null, handin_form: d.handin_form || null, pending_handin: d.pending_handin || null, handins: d.handins || [], messages: d.messages || [], week: d.week || null };
   if (!S.pick) S.pick = (d.me.models || []).filter((m) => S.E.models.some((x) => x.name === m));
 }
 const roleOf = (p) => (S.O.roles || []).find((r) => r.id === p.role_id) || null;
@@ -127,7 +131,7 @@ function render() {
 // the team member's screen (also drawn read-only inside "What they see")
 // =====================================================================================================
 function teamPage() {
-  $('#app').innerHTML = `<div class="team">${teamView(S.E, { tab: S.tab, pick: S.pick, co: S.co, sop: S.sop, show: S.show, stuck: S.stuck, tm: S.tm, fix: S.fix })}</div>`; tick();
+  $('#app').innerHTML = `<div class="team">${teamView(S.E, { tab: S.tab, pick: S.pick, co: S.co, sop: S.sop, show: S.show, stuck: S.stuck, tm: S.tm, fix: S.fix, mk: S.mk, msg: S.msgOpen, hl: S.hl, hv: S.hv })}</div>`; tick();
   const E = S.E, open = E.clocks.find((c) => !c.ended_at);
   if (open && E.brief && !E.brief.seen_at) { E.brief.seen_at = new Date().toISOString(); call('t_brief_seen').catch(() => {}); }
 }
@@ -139,6 +143,11 @@ function teamView(E, st, pv) {
   const sop = st.sop && (E.sops || []).find((x) => x.id === st.sop);
   if (st.tm && E.team) {
     body = `<button class="btn sm" data-a="tmback" style="align-self:flex-start">← Back</button>${teamPanel(E, st, pv)}`;
+  } else if (st.msg) {
+    body = `<button class="btn sm" data-a="msgclose" style="align-self:flex-start">← Back</button>${msgBox(E, st)}`;
+  } else if (st.hl && E.pending_handin) {
+    body = `<button class="btn sm" data-a="hlateno" style="align-self:flex-start">← Back</button><div><b class="bric" style="font-size:22px">Hand-in</b><div class="mu" style="font-size:12.5px">For your shift ${esc(E.pending_handin.shift)}</div></div>
+      <div class="tcard">${hiFields(E.handin_form, st.hv)}</div><div class="sp"></div><button class="big go" data-a="hlatesend">Send hand-in</button>`;
   } else if (sop) {
     body = `<button class="btn sm" data-a="sopback" style="align-self:flex-start">← Back</button><div><div class="mu2" style="font-size:11.5px">SOP · updated ${dayName(ms(sop.changed_at))}</div><b class="bric" style="font-size:22px">${esc(sop.title)}</b></div><div class="tcard sopbody">${esc(sop.body || 'Nothing written yet.')}</div>`;
   } else if (open && onBreak) {
@@ -148,6 +157,7 @@ function teamView(E, st, pv) {
   } else if (open && st.co) {
     body = `<b class="bric" style="font-size:22px">Clock out</b><div class="tiles">${tileH(hm(worked(open, breaks)), 'worked')}${tileH(hm(brk(open, breaks)), 'breaks')}${tileH(ckAll(open) ? ckDone(open) + '/' + ckAll(open) : '—', 'checklist')}</div>
       ${ckAll(open) && ckDone(open) < ckAll(open) ? `<div class="tcard warn" style="font-size:12.5px">${plural(ckAll(open) - ckDone(open), 'checklist step')} not ticked. Fine if there's a reason; say it in the note.</div>` : ''}
+      ${E.handin_form && E.handin_form.ask !== false ? `<div class="tcard"><div class="row" style="margin-bottom:6px"><b>Hand-in</b>${E.handin_form.required ? '<span class="chip" style="color:var(--warn)">required</span>' : '<span class="mu2" style="font-size:11.5px">for Sola</span>'}</div>${hiFields(E.handin_form, st.hv)}</div>` : ''}
       <div><div style="font-weight:700;margin-bottom:6px">Handover note</div><textarea id="handover" rows="5" style="width:100%;background:#141414;border-color:#262626" placeholder="What the next person should know: fans waiting, offers made, anything unfinished.">${esc(st.note || '')}</textarea></div>
       <div class="sp"></div><button class="big stop" data-a="clockout">Clock out</button><button class="btn" data-a="cancelco" style="height:40px">Back to my shift</button>`;
   } else if (open) {
@@ -158,19 +168,22 @@ function teamView(E, st, pv) {
       ${ckAll(open) ? `<div><div style="font-weight:700;margin-bottom:2px">Checklist <span class="mu2">${ckDone(open)}/${ckAll(open)}</span></div>${open.checklist.map((x, i) => `<button class="ck ${x.done ? 'done' : ''}" data-a="tick" data-v="${i}"><i>${x.done ? '✓' : ''}</i><span>${esc(x.t)}</span></button>`).join('')}</div>` : (E.brief ? '' : '<div class="tcard mu" style="font-size:12.5px">No checklist for your role yet.</div>')}
       ${E.team ? `<button class="tcard row tmbtn" data-a="tmopen" style="width:100%;text-align:left"><span style="font-size:18px">👥</span><span style="flex:1"><b>My team</b><br><span class="mu2" style="font-size:12px">${tmSummary(E.team)}</span></span><span class="mu2">›</span></button>` : ''}
       ${briefBlock(E, st)}${(E.sops || []).length ? `<div class="tcard"><div style="font-weight:700;margin-bottom:4px">SOPs</div>${sopRows(E)}</div>` : ''}
+      ${fromSola(E)}<button class="btn" data-a="msgopen" style="height:40px">💬 Message Sola</button>
       <div class="sp"></div><button class="big stop" data-a="costart">Clock out</button>`;
   } else {
-    const W = weekStats(clocks, breaks), T = [['home', 'Home'], ...(E.team ? [['team', 'Team']] : []), ...((E.accounts || []).length ? [['accts', 'Accounts']] : []), ...((E.sops || []).length ? [['sops', 'SOPs']] : []), ['week', 'My week']], cur = T.some((t) => t[0] === st.tab) ? st.tab : 'home';
+    const W = weekStats(clocks, breaks), T = [['home', 'Home'], ...(E.team ? [['team', 'Team']] : []), ...((E.accounts || []).length ? [['accts', 'Accounts']] : []), ...((E.sops || []).length ? [['sops', 'SOPs']] : []), ['week', 'My week'], ['msg', 'Message']], cur = T.some((t) => t[0] === st.tab) ? st.tab : 'home';
     const tabs = `<div class="ttabs">${T.map(([k, n]) => `<button class="${cur === k ? 'on' : ''}" data-a="ttab" data-v="${k}">${n}</button>`).join('')}</div>`;
     if (cur === 'team') {
       body = `${tabs}${teamPanel(E, st, pv)}`;
     } else if (cur === 'accts') {
       body = `${tabs}<b class="bric" style="font-size:22px">My accounts</b><div class="mu" style="font-size:12.5px;margin-top:-8px">The logins for the accounts you work on. Keep them to yourself.</div>${E.accounts.map((a) => acctCard(a, st)).join('')}`;
+    } else if (cur === 'msg') {
+      body = `${tabs}${msgBox(E, st)}`;
     } else if (cur === 'sops') {
       body = `${tabs}<b class="bric" style="font-size:22px">SOPs</b><div class="tcard">${sopRows(E)}</div>`;
     } else if (cur === 'week') {
       const mx = Math.max(HOUR, ...W.days), D = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-      body = `${tabs}<b class="bric" style="font-size:22px">My week</b>
+      body = `${tabs}<b class="bric" style="font-size:22px">My week</b>${weekCard(E)}
         <div class="tcard"><div class="wbars">${W.days.map((v, i) => `<div><i class="${v ? '' : 'z'}" style="height:${v ? Math.max(4, (v / mx) * 80) : 3}px"></i><span>${D[i]}</span></div>`).join('')}</div></div>
         <div class="tiles t2">${tileH(hm(W.work), 'hours')}${tileH(String(W.shifts), 'shifts')}${tileH(W.list.some((c) => c.ended_at) ? hm(W.avgBreak) : '—', 'avg break')}${tileH(W.pct == null ? '—' : W.pct + '%', 'checklists')}</div>
         ${W.list.length ? `<div class="tcard shl">${W.list.map((c) => `<div><span>${dayName(ms(c.started_at))} · ${tm(ms(c.started_at))}–${c.ended_at ? tm(ms(c.ended_at)) : 'now'}${c.auto_closed ? ' <span class="warn">(auto)</span>' : ''}</span><b class="mono">${hm(worked(c, breaks))}</b></div>`).join('')}</div>` : '<div class="tcard mu" style="font-size:12.5px">No shifts yet this week.</div>'}
@@ -180,6 +193,7 @@ function teamView(E, st, pv) {
       body = `${tabs}<div><div class="mu" style="font-size:12px">${new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</div><b class="bric" style="font-size:24px">Hey ${esc(first(me.name))} 👋</b><div style="margin-top:6px">${chip(role)}${E.lead ? ` <span class="mu2" style="font-size:12px">reports to ${esc(E.lead.name)}</span>` : ''}</div></div>
         <div class="tcard"><div style="font-weight:700;margin-bottom:8px">This week</div><div class="tiles">${tileH(hm(W.work), 'worked')}${tileH(String(W.shifts), 'shifts')}${tileH(W.pct == null ? '—' : W.pct + '%', 'checklists')}</div></div>
         <div class="tcard row" style="gap:12px;align-items:flex-start"><div style="font-size:22px">🗓</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${pd ? 'Next pay day: ' + pd.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'Pay day'}</b><br>Your payslip shows up here once it’s marked paid.</div></div>
+        ${nextShiftCard(E)}${E.pending_handin && E.handin_form && E.handin_form.ask !== false ? `<button class="tcard row" data-a="hlate" style="gap:12px;align-items:flex-start;width:100%;text-align:left;border-color:#5a4a14"><div style="font-size:22px">📥</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5;flex:1"><b style="color:var(--tx)">Hand in for your last shift</b><br>${esc(E.pending_handin.shift)} · takes a minute</div><span class="mu2">›</span></button>` : ''}${fromSola(E)}
         ${E.brief ? `<div class="tcard row" style="gap:12px;align-items:flex-start;border-color:#3a4a14"><div style="font-size:22px">📋</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${esc(E.brief.title)}</b><br>${plural(((E.brief.body || {}).accounts || []).length, 'account')} to work on${E.brief.mode === 'clockin' ? ', ready when you clock in' : ''}. Clock in to start.</div></div>` : ''}
         ${models.length ? `<div class="tcard"><div style="font-weight:700;margin-bottom:8px">Who are you covering?</div><div class="mdl">${models.map((m) => `<button class="${(st.pick || []).includes(m.name) ? 'on' : ''}" data-a="pick" data-v="${esc(m.name)}">${esc(m.name)}</button>`).join('')}</div></div>` : ''}
         <div class="sp"></div><button class="big go" data-a="clockin">Clock in</button>`;
@@ -228,16 +242,18 @@ function teamPanel(E, st, pv) { const T = E.team, pw = T.powers, wk = weekStart(
   const card = (p) => { const cl = T.clocks.filter((c) => c.person_id === p.id), open = cl.find((c) => !c.ended_at), br = open && T.breaks.find((b) => b.clock_id === open.id && !b.ended_at), last = cl.find((c) => c.ended_at);
     const brief = (T.briefs || []).find((b) => b.person_id === p.id), bt = brief ? brief.accounts.reduce((t, a) => t + a.steps, 0) : 0, bd = brief ? brief.accounts.reduce((t, a) => t + Object.values((brief.ticks || {})[`${a.key}@${a.day == null ? 0 : a.day}`] || {}).filter(Boolean).length, 0) : 0;
     const hrs = cl.reduce((t, c) => t + workedBetween(c, T.breaks, wk, wk + 7 * DAY), 0), ho = cl.find((c) => c.handover);
-    return `<div class="tcard tmp"><div class="row">${av(p.name, 30)}<div style="flex:1;min-width:0"><b>${esc(p.name)}</b> ${p.role ? `<span class="chip" style="color:${esc(p.role.color)};background:${esc(p.role.color)}22">${esc(p.role.name)}</span>` : ''}
+    const lt = pw.live && (T.late || []).find((x) => x.person_id === p.id);
+    return `<div class="tcard tmp"><div class="row">${av(p.name, 30)}<div style="flex:1;min-width:0"><b>${esc(p.name)}</b> ${p.role ? `<span class="chip" style="color:${esc(p.role.color)};background:${esc(p.role.color)}22">${esc(p.role.name)}</span>` : ''}${lt ? ` <span class="chip" style="color:var(--bad);background:#f8717122">${lt.kind === 'late' ? 'late' : 'no-show'}</span>` : ''}
       ${pw.live ? `<div>${open ? (br ? `<span class="st br"><i></i>Break <span data-t0="${ms(br.started_at)}" data-fmt="hm">${hm(Date.now() - ms(br.started_at))}</span></span>` : `<span class="st on"><i></i>On · <span data-t0="${ms(open.started_at)}" data-off="${(open.break_secs || 0) * 1000}" data-fmt="hm">${hm(Date.now() - ms(open.started_at))}</span></span>`) : `<span class="st off"><i></i>${last ? 'Off · last on ' + ago(ms(last.ended_at)) : p.last_seen ? 'Off' : 'Hasn’t signed in yet'}</span>`}</div>` : ''}</div>${pw.hours ? `<b class="mono" style="font-size:12.5px">${hm(hrs)}</b>` : ''}</div>
       ${pw.progress ? `${open && ckAll(open) ? `<div class="mu2" style="font-size:11.5px;margin-top:8px">Checklist ${ckDone(open)}/${ckAll(open)}</div><div class="bar"><i style="width:${(ckDone(open) / ckAll(open)) * 100}%"></i></div>` : ''}${brief && bt ? `<div class="mu2" style="font-size:11.5px;margin-top:8px">Brief ${bd}/${bt}${brief.seen_at ? '' : ' · not opened yet'}</div><div class="bar"><i style="width:${(bd / bt) * 100}%"></i></div>` : ''}` : ''}
       ${pw.handover && ho ? `<div class="mu" style="font-size:12px;margin-top:8px">“${esc(ho.handover.slice(0, 140))}${ho.handover.length > 140 ? '…' : ''}” <span class="mu2">· ${ago(ms(ho.ended_at))}</span></div>` : ''}
       ${pw.fixclock ? cl.filter((c) => c.auto_closed).map((c) => st.fix === c.id ? `<div class="fixb"><div class="mu2" style="font-size:11.5px">Fix ${dayName(ms(c.started_at))}: when did they really start and stop?</div><div class="row" style="gap:6px;margin-top:6px"><input type="datetime-local" id="fx-in" value="${locT(c.started_at)}"><input type="datetime-local" id="fx-out" value="${locT(c.ended_at)}"></div><div class="row" style="margin-top:6px"><button class="btn sm pri" data-a="fxsave" data-v="${c.id}">Save</button><button class="btn sm" data-a="fxno">Cancel</button></div></div>`
         : `<div class="row fixr"><span class="warn" style="font-size:12px">⚠ Forgot to clock out ${dayName(ms(c.started_at))} (capped at 16h)</span><button class="btn sm" data-a="fxopen" data-v="${c.id}">Fix</button></div>`).join('') : ''}</div>`; };
-  const ev = pw.handins ? (T.reports || []) : [];
+  const ev = pw.handins ? (T.reports || []) : [], HI = pw.handins ? (T.handins || []) : [];
   return `<div><b class="bric" style="font-size:22px">My team</b><div class="mu" style="font-size:12.5px">${SCOPE_SUB[T.scope] || ''} · ${plural(T.people.length, 'person')}</div></div>
     ${T.people.map(card).join('')}
-    ${pw.handins ? `<div class="tcard"><div style="font-weight:700;margin-bottom:6px">Hand-ins</div>${ev.length ? ev.map((r) => { const p = T.people.find((x) => x.id === r.person_id); return `<div class="row" style="font-size:12.5px;padding:5px 0;border-top:1px solid #1f1f1f;align-items:flex-start"><span>${r.kind === 'done' ? '✅' : '⚠'}</span><span style="flex:1"><b>${esc(p ? first(p.name) : '?')}</b> · ${esc(r.handle || 'account')}${r.day ? ' day ' + r.day : ''} ${r.kind === 'done' ? 'done' : 'stuck'}${r.note ? `<div class="mu2">“${esc(r.note)}”</div>` : ''}</span><span class="mu2">${tm(ms(r.at))}</span></div>`; }).join('') : '<div class="mu2" style="font-size:12.5px">Nothing in the last 2 days.</div>'}</div>` : ''}
+    ${pw.handins ? `<div class="tcard"><div style="font-weight:700;margin-bottom:6px">Hand-ins</div>${ev.length ? ev.map((r) => { const p = T.people.find((x) => x.id === r.person_id); return `<div class="row" style="font-size:12.5px;padding:5px 0;border-top:1px solid #1f1f1f;align-items:flex-start"><span>${r.kind === 'done' ? '✅' : '⚠'}</span><span style="flex:1"><b>${esc(p ? first(p.name) : '?')}</b> · ${esc(r.handle || 'account')}${r.day ? ' day ' + r.day : ''} ${r.kind === 'done' ? 'done' : 'stuck'}${r.note ? `<div class="mu2">“${esc(r.note)}”</div>` : ''}</span><span class="mu2">${tm(ms(r.at))}</span></div>`; }).join('') : '<div class="mu2" style="font-size:12.5px">Nothing in the last 2 days.</div>'}
+      ${HI.map((h) => { const p = T.people.find((x) => x.id === h.person_id); return `<div style="font-size:12.5px;padding:6px 0;border-top:1px solid #1f1f1f"><b>📥 ${esc(p ? first(p.name) : '?')}</b> <span class="mu2">${esc(h.shift || '')}${h.late ? ' · late' : ''}</span><div class="mu">${(h.fields || []).map((x) => `${esc(x.label)}: <b style="color:var(--tx)">${esc(hiVal(x, h.values[x.k]))}</b>`).join(' · ')}</div></div>`; }).join('')}</div>` : ''}
     <div class="mu2" style="font-size:11.5px;text-align:center">Sola decides what you see here. Never: pay, rates or other people’s logins.</div>`; }
 const locT = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 // the same view, worked out on the owner's side for What they see
@@ -250,19 +266,50 @@ function teamFor(p) { const O = S.O, r = (O.roles || []).find((x) => x.id === p.
   return { scope: r.scope, powers: pw, people: O.people.filter((x) => ids.includes(x.id)).map((x) => { const rr = O.roles.find((y) => y.id === x.role_id); return { id: x.id, name: x.name, active: x.active, last_seen: x.last_seen, role: rr ? { name: rr.name, color: rr.color } : null }; }),
     clocks: O.clocks.filter((c) => ids.includes(c.person_id)).map((c) => ({ ...c, checklist: pw.progress ? c.checklist : null, handover: pw.handover ? c.handover : null })), breaks: pw.live ? O.breaks.filter((b) => ids.includes(b.person_id)) : [],
     briefs: pw.progress ? (O.briefs || []).filter((b) => ids.includes(b.person_id)).map((b) => ({ person_id: b.person_id, title: b.title, seen_at: b.seen_at, ticks: b.ticks, accounts: ((b.body || {}).accounts || []).map((a) => ({ key: a.key, handle: a.handle, day: a.day == null ? null : a.day, steps: (a.steps || []).length })) })) : [],
-    reports: pw.handins ? (O.reports || []).filter((x) => ids.includes(x.person_id) && Date.now() - ms(x.at) < 2 * DAY) : [] }; }
+    reports: pw.handins ? (O.reports || []).filter((x) => ids.includes(x.person_id) && Date.now() - ms(x.at) < 2 * DAY) : [],
+    handins: pw.handins ? (O.handins || []).filter((h) => ids.includes(h.person_id) && Date.now() - ms(h.at) < 7 * DAY) : [], late: pw.live ? (O.late || []).filter((x) => ids.includes(x.person_id)) : [] }; }
 const tileH = (a, b) => `<div class="tile"><b>${esc(a)}</b><div>${esc(b)}</div></div>`;
+// ---- hand-in fields, messages, the schedule (team member side) ----
+function hiFields(f, v) { v = v || {};
+  return (f.fields || []).map((x) => `<div class="hif"><label>${esc(x.label)}</label>${x.type === 'ratio' ? `<div class="row" style="gap:6px"><input id="hi-${esc(x.k)}-a" inputmode="decimal" placeholder="e.g. 665" value="${esc((v[x.k] || {}).a || '')}"><span class="mu2">/</span><input id="hi-${esc(x.k)}-b" inputmode="decimal" placeholder="e.g. 600" value="${esc((v[x.k] || {}).b || '')}"></div>`
+    : x.type === 'text' ? `<textarea id="hi-${esc(x.k)}" rows="2" maxlength="1000">${esc(v[x.k] || '')}</textarea>` : `<input id="hi-${esc(x.k)}" ${x.type === 'number' ? 'inputmode="decimal"' : ''} placeholder="${x.type === 'link' ? 'https://…' : ''}" value="${esc(v[x.k] || '')}">`}</div>`).join(''); }
+function readHi(f, root) { const q = (id) => (root || document).querySelector('#' + id), out = {}; let any = false;
+  for (const x of (f && f.fields) || []) { if (x.type === 'ratio') { const a = (q(`hi-${x.k}-a`) || {}).value, b = (q(`hi-${x.k}-b`) || {}).value; if (a || b) { out[x.k] = { a: +String(a).replace(',', '.'), b: +String(b).replace(',', '.') }; any = true; } }
+    else { const e = q('hi-' + x.k), v = e ? e.value.trim() : ''; if (v) { out[x.k] = x.type === 'number' ? +v.replace(',', '.') : v; any = true; } } }
+  return any ? out : null; }
+const hiVal = (x, v) => (v == null ? '—' : x.type === 'ratio' ? `${v.a} / ${v.b} → ${(v.a / v.b).toFixed(2)}` : String(v));
+const KIND = { update: ['Update', 'var(--ac)'], question: ['Question', 'var(--blue)'], problem: ['Problem', 'var(--bad)'] };
+const kindChip = (k) => { const x = KIND[k] || KIND.update; return `<span class="chip" style="color:${x[1]};background:${x[1].replace('var(--ac)', '#c6ff4d')}22">${x[0]}</span>`; };
+function msgBox(E, st) { const k = st.mk || 'update', M = E.messages || [];
+  return `<div><b class="bric" style="font-size:22px">Message Sola</b><div class="mu" style="font-size:12.5px">Short and about work. Replies show up here.</div></div>
+    <div class="tcard"><div class="mdl" style="margin-bottom:8px">${Object.entries(KIND).map(([v, [n]]) => `<button class="${k === v ? 'on' : ''}" data-a="msgkind" data-v="${v}">${n}</button>`).join('')}</div>
+    <textarea id="msgtext" rows="4" maxlength="280" style="width:100%" placeholder="${k === 'problem' ? 'What’s wrong? e.g. IG wants a phone check on @paige.fit' : k === 'question' ? 'What do you need to know?' : 'What’s new?'}"></textarea><div class="row" style="margin-top:6px"><small class="mu2" id="msgn">0 / 280</small><span class="sp"></span><button class="btn pri" data-a="msgsend">Send</button></div></div>
+    ${M.length ? `<div class="tcard"><div style="font-weight:700;margin-bottom:4px">Your messages</div>${M.map((m) => `<div class="msgr"><div class="row">${kindChip(m.kind)}<span class="mu2" style="font-size:11.5px">${dayName(ms(m.at))} · ${tm(ms(m.at))}</span>${m.done_at && !m.reply ? '<span class="ok" style="font-size:11.5px">✓ seen</span>' : ''}</div><div style="font-size:13px;margin-top:3px">${esc(m.text)}</div>${m.reply ? `<div class="reply"><b>Sola:</b> ${esc(m.reply)}</div>` : ''}</div>`).join('')}</div>` : ''}`; }
+function fromSola(E) { const R = [...(E.messages || []).filter((m) => m.reply).map((m) => ({ at: m.reply_at, t: m.reply, re: m.text })), ...(E.handins || []).filter((h) => h.reply).map((h) => ({ at: h.reply_at, t: h.reply, re: 'Hand-in · ' + h.shift }))].filter((x) => Date.now() - ms(x.at) < 3 * DAY).sort((a, z) => ms(z.at) - ms(a.at)).slice(0, 3);
+  return R.length ? `<div class="tcard" style="border-color:#1e3a5f"><div style="font-weight:700;margin-bottom:4px">From Sola</div>${R.map((x) => `<div class="msgr"><div style="font-size:13px">${esc(x.t)}</div><div class="mu2" style="font-size:11px">re: ${esc(String(x.re).slice(0, 60))} · ${ago(ms(x.at))}</div></div>`).join('')}</div>` : ''; }
+const sTime = (date, hmv, tz) => { try { return new Date(SAT.toUtc(date, hmv, tz)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return hmv; } };
+function nextShiftCard(E) { const W = E.week; if (!W) return ''; const me = E.me.id, now = Date.now();
+  const up = W.shifts.filter((x) => x.person_id === me).map((x) => { const [a, z] = SAT.window(x, x.date, W.tz); return { ...x, a, z }; }).filter((x) => x.z > now).sort((a, z) => a.a - z.a)[0];
+  if (!up) return '';
+  const on = up.a <= now, late = !on ? false : !E.clocks.some((c) => !c.ended_at);
+  return `<div class="tcard row" style="gap:12px;align-items:flex-start${late ? ';border-color:#5a2a2a' : ''}"><div style="font-size:22px">⏰</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${on ? (late ? 'Your shift started ' + ago(up.a).replace(' ago', '') + ' ago' : 'You’re on shift') : 'Next shift: ' + (up.date === SAT.today(W.tz) ? 'today' : dayName(up.a))}</b><br>${new Date(up.a).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${new Date(up.z).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${up.what ? ' · ' + esc(up.what) : ''}</div></div>`; }
+function weekCard(E) { const W = E.week; if (!W) return ''; const mine = W.shifts.filter((x) => x.person_id === E.me.id), D = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const row = (pid, nm) => `<div class="wkr"><b>${esc(nm)}</b>${W.days.map((d, i) => { const x = W.shifts.find((y) => y.person_id === pid && y.date === d); return `<span class="${x ? 'on' : ''}" title="${x ? esc(x.start + '–' + x.end + (x.what ? ' · ' + x.what : '')) : ''}">${x ? esc(sTime(d, x.start, W.tz).replace(':00', '').replace(' ', '').toLowerCase()) : '·'}</span>`; }).join('')}</div>`;
+  return `<div class="tcard"><div class="row" style="margin-bottom:6px"><b>Schedule</b><span class="sp"></span><span class="mu2" style="font-size:11.5px">this week</span></div>
+    ${mine.length ? mine.map((x) => `<div class="row" style="font-size:13px;padding:4px 0;border-top:1px solid #1f1f1f"><span style="width:44px" class="mu">${D[SAT.monDow(x.date)]}</span><b>${esc(sTime(x.date, x.start, W.tz))}–${esc(sTime(x.date, x.end, W.tz))}</b><span class="mu2">${esc(x.what || '')}</span></div>`).join('') : '<div class="mu2" style="font-size:12.5px">No shifts set for you this week.</div>'}
+    ${W.see_team && W.people.length > 1 ? `<details style="margin-top:8px"><summary class="mu" style="font-size:12.5px;cursor:pointer">Team this week</summary><div class="wkh"><b></b>${D.map((d) => `<span>${d[0]}</span>`).join('')}</div>${W.people.map((p) => row(p.id, p.name)).join('')}</details>` : ''}</div>`; }
 
 // =====================================================================================================
 // the owner's side
 // =====================================================================================================
-const NAV = [['live', 'live', 'Live floor'], ['people', 'ppl', 'People'], ['roles', 'dep', 'Departments & roles'], ['sops', 'sop', 'Briefs & SOPs'], ['wts', 'eye', 'What they see'], ['settings', 'set', 'Settings']];
-const SOON = [['cal', 'Schedule', 2], ['inb', 'Hand-ins', 3], ['dc', 'Discord posts', 2], ['pay', 'Pay', 4]];
+const NAV = [['live', 'live', 'Live floor'], ['people', 'ppl', 'People'], ['roles', 'dep', 'Departments & roles'], ['sched', 'cal', 'Schedule'], ['handins', 'inb', 'Hand-ins'], ['msgs', 'msg', 'Messages'], ['sops', 'sop', 'Briefs & SOPs'], ['discord', 'dc', 'Discord posts'], ['wts', 'eye', 'What they see'], ['settings', 'set', 'Settings']];
+const SOON = [['pay', 'Pay', 4]];
+const badge = (k) => { const O = S.O; if (!O) return 0; if (k === 'handins') return (O.handins || []).filter((h) => !h.reviewed_at).length; if (k === 'msgs') return (O.messages || []).filter((m) => !m.done_at).length; if (k === 'sched') return (O.late || []).length; return 0; };
 function ownerView() {
   if (!NAV.some((n) => n[0] === S.page)) setPage('live');
   const O = S.O, team = O.people.filter((p) => !p.is_owner);
   $('#app').innerHTML = `<div class="app"><div class="nav"><div class="brand"><img src="${LOGO}" alt=""><div><b>${esc(O.settings.team_name || 'SA. Team')}</b><small>the online office</small></div></div>
-    ${NAV.map(([k, i, n]) => `<button class="ni ${S.page === k ? 'on' : ''}" data-a="page" data-v="${k}">${svg(i)}${n}</button>`).join('')}
+    ${NAV.map(([k, i, n]) => { const b = badge(k); return `<button class="ni ${S.page === k ? 'on' : ''}" data-a="page" data-v="${k}">${svg(i)}${n}${b ? `<small class="nb ${k === 'sched' ? 'warn' : ''}">${b}</small>` : ''}</button>`; }).join('')}
     <div class="nsec">Coming next</div>${SOON.map(([i, n, ph]) => `<button class="ni" disabled title="Phase ${ph}">${svg(i)}${n}<small>P${ph}</small></button>`).join('')}
     <div class="nfoot">${plural(team.filter((p) => p.active).length, 'person')} on the team<br>${team.filter((p) => p.active && !p.last_seen).length ? `<span class="warn">${team.filter((p) => p.active && !p.last_seen).length} never signed in</span><br>` : ''}<button class="btn sm" data-a="signout" style="margin-top:8px">Sign out</button></div></div>
     <div class="main" id="main"></div></div>`;
@@ -270,9 +317,11 @@ function ownerView() {
 }
 function paintMain() {
   const m = $('#main'); if (!m) return;
-  ({ live: liveView, people: peopleView, roles: rolesView, sops: sopsView, wts: wtsView, settings: settingsView }[S.page] || liveView)(m);
+  ({ live: liveView, people: peopleView, roles: rolesView, sched: schedView, handins: handinsView, msgs: msgsView, sops: sopsView, discord: discordView, wts: wtsView, settings: settingsView }[S.page] || liveView)(m);
   tick();
 }
+const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } };
+const payDay = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '—');
 const topBar = (t, sub, btns = '') => `<div class="top"><h1>${t}</h1><span class="sub">${sub}</span><span class="sp"></span>${btns}</div>`;
 const siteUrl = () => location.origin + location.pathname;
 
@@ -288,7 +337,7 @@ function liveView(m) {
   const today = O.clocks.filter((c) => (c.ended_at ? ms(c.ended_at) : Date.now()) > t0);
   const hrs = today.reduce((a, c) => a + workedBetween(c, O.breaks, t0, t0 + DAY), 0);
   const auto = O.clocks.filter((c) => c.auto_closed), notIn = team.filter((p) => !p.last_seen);
-  const kpis = [['On now', String(on.length), `of ${team.length} on the team`, 'hot'], ['On break', String(br.length), br.map((x) => first(x.p.name)).join(', ') || 'nobody', br.length ? 'warn' : ''], ['Hours today', (hrs / HOUR).toFixed(1), 'team total', ''], ['Never signed in', String(notIn.length), notIn.length ? notIn.map((p) => first(p.name)).slice(0, 3).join(', ') : 'everyone’s been in', notIn.length ? 'warn' : ''], ['Auto clock-outs', String(auto.length), auto.length ? 'forgot to clock out · check People' : 'none in 2 weeks', auto.length ? 'warn' : '']];
+  const kpis = [['On now', String(on.length), `of ${team.length} on the team`, 'hot'], ['On break', String(br.length), br.map((x) => first(x.p.name)).join(', ') || 'nobody', br.length ? 'warn' : ''], ['Hours today', (hrs / HOUR).toFixed(1), 'team total', ''], ['Never signed in', String(notIn.length), notIn.length ? notIn.map((p) => first(p.name)).slice(0, 3).join(', ') : 'everyone’s been in', notIn.length ? 'warn' : ''], ['Auto clock-outs', String(auto.length), auto.length ? 'forgot to clock out · check People' : 'none in 2 weeks', auto.length ? 'warn' : ''], ['Late / no-show', String((O.late || []).length), (O.late || []).length ? O.late.map((x) => first(x.name)).slice(0, 3).join(', ') : 'from the Schedule', (O.late || []).length ? 'warn' : '']];
   // activity: today's events, newest first
   const ev = [];
   for (const c of O.clocks) { const p = O.people.find((x) => x.id === c.person_id); if (!p) continue;
@@ -303,7 +352,7 @@ function liveView(m) {
   m.innerHTML = `${topBar('Live floor', new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + tm(Date.now()), `<button class="btn" data-a="refresh">Refresh</button><button class="btn dc" data-a="copylink">⧉ Copy the team link</button>`)}
   <div class="body"><div class="kpis">${kpis.map((k) => `<div class="card kpi ${k[3]}"><span>${k[0]}</span><b>${k[1]}</b><small>${esc(k[2])}</small></div>`).join('')}</div>
   ${team.length ? `<div class="live"><div class="card" style="padding:14px"><div class="row"><span class="lbl">Everyone</span><span class="sp"></span><span class="mu2" style="font-size:11.5px">click someone to open them</span></div>
-    <div class="pgrid">${st.sort((a, z) => (z.open ? 1 : 0) - (a.open ? 1 : 0)).map(({ p, open, b, last }) => { const r = roleOf(p); return `<button class="pc ${!p.last_seen ? 'flag' : ''}" data-a="openp" data-v="${p.id}"><div class="r1">${av(p.name)}<div style="min-width:0;flex:1"><b>${esc(p.name)}</b> ${chip(r)}<div>${open ? (b ? `<span class="st br"><i></i>Break <span data-t0="${ms(b.started_at)}" data-fmt="hm">${hm(Date.now() - ms(b.started_at))}</span></span>` : `<span class="st on"><i></i><span data-t0="${ms(open.started_at)}" data-off="${brk(open, O.breaks)}" data-fmt="hm">${hm(worked(open, O.breaks))}</span></span>`) : `<span class="st off"><i></i>${!p.last_seen ? 'Hasn’t signed in yet' : last ? 'Off · last on ' + ago(ms(last.ended_at)) : 'Off · no shifts yet'}</span>`}</div></div></div>
+    <div class="pgrid">${st.sort((a, z) => (z.open ? 1 : 0) - (a.open ? 1 : 0)).map(({ p, open, b, last }) => { const r = roleOf(p); return `<button class="pc ${!p.last_seen ? 'flag' : ''}" data-a="openp" data-v="${p.id}"><div class="r1">${av(p.name)}<div style="min-width:0;flex:1"><b>${esc(p.name)}</b> ${chip(r)}<div>${open ? (b ? `<span class="st br"><i></i>Break <span data-t0="${ms(b.started_at)}" data-fmt="hm">${hm(Date.now() - ms(b.started_at))}</span></span>` : `<span class="st on"><i></i><span data-t0="${ms(open.started_at)}" data-off="${brk(open, O.breaks)}" data-fmt="hm">${hm(worked(open, O.breaks))}</span></span>`) : `<span class="st off"><i></i>${!p.last_seen ? 'Hasn’t signed in yet' : last ? 'Off · last on ' + ago(ms(last.ended_at)) : 'Off · no shifts yet'}</span>`}${lateChip(p.id)}</div></div></div>
       <div class="w">${open ? `On <b>${esc((open.models || []).join(', ') || '—')}</b> since ${tm(ms(open.started_at))}` : `${roleOf(p) ? esc(deptOf(roleOf(p)) ? deptOf(roleOf(p)).name : roleOf(p).name) : 'No role'}${p.discord ? ' · @' + esc(p.discord) : ''}`}</div>
       ${open && ckAll(open) ? `<div><div class="row mu2" style="font-size:11.5px;margin-bottom:4px"><span>Checklist ${ckDone(open)}/${ckAll(open)}</span></div><div class="bar"><i style="width:${(ckDone(open) / ckAll(open)) * 100}%"></i></div></div>` : ''}</button>`; }).join('')}</div></div>
     <div class="card feed"><div class="row" style="margin-bottom:6px"><span class="lbl">Today</span><span class="sp"></span><span class="mu2" style="font-size:11px">updates every 20s</span></div>${ev.length ? ev.slice(0, 40).map((e) => `<div class="fi"><div class="ic">${e[1]}</div><div><b>${esc(e[2])}</b><small>${esc(e[3])}${e[3] ? ' · ' : ''}${tm(e[0])}</small></div></div>`).join('') : '<div class="mu" style="padding:14px 0;font-size:12.5px">Nothing yet today.</div>'}</div></div>
@@ -311,6 +360,7 @@ function liveView(m) {
   : `<div class="card empty"><div><b style="color:var(--tx);font-size:15px">Nobody on the team yet.</b><br>1 · Departments & roles: make a department and a role (with its checklist).<br>2 · People: add someone. Saving gives you their employee ID to send them.<br>3 · Copy the team link and post it in your staff channel.<br><br><button class="btn pri" data-a="page" data-v="roles">Start with Departments & roles</button></div></div>`}</div>`;
 }
 
+const lateChip = (pid) => { const x = (S.O.late || []).find((y) => y.person_id === pid); return x ? ` <span class="chip" style="color:var(--bad);background:#f8717122">${x.kind === 'late' ? 'late ' + hm(Date.now() - ms(x.due)) : 'no-show'}</span>` : ''; };
 // ---- People ----
 function peopleView(m) {
   const O = S.O, list = [...O.people].sort((a, z) => (z.is_owner ? 1 : 0) - (a.is_owner ? 1 : 0) || (z.active ? 1 : 0) - (a.active ? 1 : 0) || a.name.localeCompare(z.name));
@@ -384,6 +434,95 @@ function roleEd(r) {
     <div class="row"><button class="btn pri" data-a="saver">${isNew ? 'Make the role' : 'Save'}</button>${isNew ? '' : `<button class="btn" data-a="rwts" data-v="${r.id}">${svg('eye').replace('<svg', '<svg style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8"')} What a ${esc(r.name)} sees</button>`}<span class="sp"></span>${isNew || syn ? '' : '<button class="btn bad" data-a="delr">Delete</button>'}</div></div>`;
 }
 
+// ---- Schedule ----
+const h12 = (hmv) => { const [h, m] = String(hmv || '0:0').split(':').map(Number), a = h >= 12 ? 'p' : 'a', hh = h % 12 || 12; return m ? `${hh}:${pad(m)}${a}` : `${hh}${a}`; };
+const DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function schedView(m) {
+  const O = S.O, tz = O.settings.tz || 'America/Chicago', today = SAT.today(tz), days = SAT.weekOf(SAT.addDays(today, 7 * (S.wkOff || 0)));
+  const team = O.people.filter((p) => !p.is_owner && p.active), R = O.sched || {};
+  const cell = (p, d) => { const x = SAT.shiftOn(O.shifts || [], O.shiftx || [], p.id, d), r = roleOf(p), c = r ? r.color : '#c6ff4d';
+    return `<button class="shc ${x ? 'on' : ''} ${d === today ? 'td' : ''}" data-a="shedit" data-v="${p.id}|${d}" style="${x ? `background:${c}1f;border-color:${c}66;color:${c}` : ''}">${x ? `${h12(x.start)}–${h12(x.end)}${x.what ? `<small>${esc(x.what)}</small>` : ''}${x.one ? '<i title="just this day">•</i>' : ''}` : '+'}</button>`; };
+  const onNow = team.filter((p) => O.clocks.some((c) => c.person_id === p.id && !c.ended_at));
+  m.innerHTML = `${topBar('Schedule', `Week of ${new Date(days[0] + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })} · shifts show on their home screen`, `<button class="btn" data-a="wk" data-v="-1">‹</button><button class="btn" data-a="wk" data-v="0" ${S.wkOff ? '' : 'disabled'}>This week</button><button class="btn" data-a="wk" data-v="1">›</button>`)}
+  <div class="body"><div class="schl"><div class="card" style="padding:14px 16px;overflow:auto">${team.length ? `<div class="sgrid"><div></div>${days.map((d, i) => `<div class="sgh ${d === today ? 'td' : ''}">${DOWS[i]} ${+d.slice(8)}</div>`).join('')}
+    ${team.map((p) => `<div class="row" style="gap:8px;min-width:0">${av(p.name, 28)}<div style="min-width:0"><b style="font-size:13px">${esc(p.name)}</b><div class="mu2" style="font-size:11px">${esc((roleOf(p) || {}).name || 'No role')}</div></div></div>${days.map((d) => cell(p, d)).join('')}`).join('')}</div>
+    <div class="mu2" style="font-size:12px;margin-top:12px">Click a box to add or change a shift: the time, plus a model or platform. It repeats every week unless you make it “just this day” (•). Times are ${esc(tz.replace('_', ' '))} time.</div>`
+    : '<div class="mu" style="font-size:12.5px">Add people first (People).</div>'}</div>
+    <div class="col" style="gap:14px"><div class="card" style="padding:14px 16px"><div class="lbl" style="margin-bottom:6px">Right now · ${tm(Date.now())}</div>
+      ${(O.late || []).map((x) => `<div class="row" style="padding:6px 0;border-top:1px solid #1f1f1f;font-size:13px">${av(x.name, 26)}<span style="flex:1"><b>${esc(first(x.name))}</b> <span class="chip" style="color:var(--bad);background:#f8717122">${x.kind === 'late' ? 'late ' + hm(Date.now() - ms(x.due)) : 'no-show'}</span><div class="mu2" style="font-size:11.5px">was due ${tm(ms(x.due))}${x.what ? ' · ' + esc(x.what) : ''} · not clocked in</div></span></div>`).join('')}
+      ${onNow.map((p) => { const c = O.clocks.find((x) => x.person_id === p.id && !x.ended_at); return `<div class="row" style="padding:6px 0;border-top:1px solid #1f1f1f;font-size:13px">${av(p.name, 26)}<span style="flex:1"><b>${esc(first(p.name))}</b> <span class="chip" style="color:var(--ok);background:#4ade8022">on · since ${tm(ms(c.started_at))}</span></span></div>`; }).join('')}
+      ${!(O.late || []).length && !onNow.length ? '<div class="mu2" style="font-size:12.5px">Nobody on, nobody late.</div>' : ''}</div>
+      <div class="card ed" style="padding:14px 16px"><div class="lbl">Rules</div>
+        <div class="fr"><span>Late after<small>minutes past the start</small></span><input id="slate" type="number" min="1" max="120" value="${esc(R.late_min || 10)}" style="width:90px"></div>
+        <label class="row" style="cursor:pointer;font-size:13px"><button class="tg ${R.see_team ? 'on' : ''}" data-a="tgl" id="sseet"></button>People can see teammates’ shifts</label>
+        <label class="row" style="cursor:pointer;font-size:13px"><button class="tg ${R.only_shift ? 'on' : ''}" data-a="tgl" id="sonly"></button>Clock-in only during their shift<small class="mu2">(30 min early is fine)</small></label>
+        <div class="row"><button class="btn pri" data-a="schedrules">Save rules</button></div></div></div></div></div>`;
+}
+function shiftDlg(pid, date) {
+  const O = S.O, p = O.people.find((x) => x.id === pid), x = SAT.shiftOn(O.shifts || [], O.shiftx || [], pid, date), dn = DOWS[SAT.monDow(date)], nice = new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const opts = [...new Set([...O.models.map((m) => m.name), 'Instagram', 'TikTok', 'X / Twitter', 'Reddit', 'Snapchat', 'Threads'])];
+  $('#dlg').innerHTML = `<div class="scrim" id="dlgscrim"><div class="dlg"><h2>${esc(first(p.name))} · ${esc(nice)}</h2>
+    <div class="row" style="gap:8px;margin:12px 0"><label class="col" style="gap:4px;flex:1"><span class="mu2" style="font-size:12px">Start</span><input type="time" id="shs" value="${esc(x ? x.start : '09:00')}"></label><label class="col" style="gap:4px;flex:1"><span class="mu2" style="font-size:12px">End</span><input type="time" id="she" value="${esc(x ? x.end : '13:00')}"></label></div>
+    <label class="col" style="gap:4px"><span class="mu2" style="font-size:12px">Covering (model or platform, optional)</span><input id="shw" list="shwl" maxlength="60" value="${esc(x ? x.what : '')}" placeholder="e.g. Instagram"><datalist id="shwl">${opts.map((o) => `<option value="${esc(o)}">`).join('')}</datalist></label>
+    <div class="seg3" id="shsc" data-v="${x && x.one ? 'once' : 'week'}" style="margin-top:12px"><button class="${x && x.one ? '' : 'on'}" data-a="rscope2" data-v="week">Every ${dn}</button><button class="${x && x.one ? 'on' : ''}" data-a="rscope2" data-v="once">Just ${esc(nice)}</button></div>
+    <div class="mu2" style="font-size:12px;margin-top:6px">An end time before the start runs past midnight (6p–12a).</div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px">${x ? '<button class="btn bad" data-a="shdel">Remove</button><span class="sp"></span>' : ''}<button class="btn" data-a="closedlg">Cancel</button><button class="btn pri" data-a="shsave">Save</button></div></div></div>`;
+  S.shd = { pid, date };
+  $('#dlgscrim').onclick = (e) => { if (e.target.id === 'dlgscrim') $('#dlg').innerHTML = ''; };
+}
+
+// ---- Hand-ins ----
+const FTYPES = [['number', 'Number'], ['text', 'Text'], ['link', 'Link'], ['ratio', 'Ratio (a / b)']];
+function handinsView(m) {
+  const O = S.O, all = O.handins || [], open = all.filter((h) => !h.reviewed_at), list = S.hAll ? all : open;
+  const roles = O.roles.filter((r) => !r.gone), rid = roles.some((r) => r.id === S.hRole) ? S.hRole : (roles.find((r) => O.people.some((p) => p.role_id === r.id && p.active)) || roles[0] || {}).id;
+  S.hRole = rid; const r = roles.find((x) => x.id === rid), f = S.hDraft && S.hDraft.rid === rid ? S.hDraft : { rid, ...(r && r.handin ? JSON.parse(JSON.stringify(r.handin)) : { fields: [], ask: true, required: false }) }; S.hDraft = f;
+  const card = (h) => { const p = O.people.find((x) => x.id === h.person_id) || { name: '?' }, rr = roleOf(p);
+    return `<div class="card hcard" style="padding:14px 16px"><div class="row">${av(p.name, 30)}<b>${esc(p.name)}</b>${chip(rr)}<span class="mu2" style="font-size:12px">${esc(h.shift || '')} · ${ago(ms(h.at))}</span>${h.late ? '<span class="chip" style="color:var(--warn)">late hand-in</span>' : ''}<span class="sp"></span>${h.reviewed_at ? '<span class="ok" style="font-size:12px">✓ reviewed</span>' : `<button class="btn sm pri" data-a="hrev" data-v="${h.id}">✓ Reviewed</button>`}</div>
+      <div class="hgrid">${(h.fields || []).map((x) => `<div class="hv"><small>${esc(x.label)}</small>${x.type === 'link' && h.values[x.k] ? `<a href="${esc(h.values[x.k])}" target="_blank" rel="noopener">${esc(String(h.values[x.k]).replace(/^https?:\/\//, '').slice(0, 40))}</a>` : `<b>${esc(hiVal(x, h.values[x.k]))}</b>`}</div>`).join('')}</div>
+      ${h.reply ? `<div class="reply"><b>You:</b> ${esc(h.reply)}</div>` : `<div class="row" style="margin-top:10px"><input id="hr-${h.id}" placeholder="Reply to ${esc(first(p.name))} (shows on their home screen)…" maxlength="500" style="flex:1"><button class="btn sm" data-a="hreply" data-v="${h.id}">Send</button></div>`}</div>`; };
+  m.innerHTML = `${topBar('Hand-ins', 'What people hand in at the end of a shift', `<span class="seg2"><button class="${S.hAll ? '' : 'on'}" data-a="hall" data-v="0">To review ${open.length}</button><button class="${S.hAll ? 'on' : ''}" data-a="hall" data-v="1">All</button></span>`)}
+  <div class="body"><div class="schl"><div class="col" style="gap:12px">${list.length ? list.map(card).join('') : `<div class="card empty"><div>${S.hAll ? 'No hand-ins in the last 2 weeks.' : 'Nothing to review.'}<br><span class="mu2">Build a form for a role on the right; people fill it in when they clock out.</span></div></div>`}</div>
+    <div class="col" style="gap:14px"><div class="card ed" style="padding:14px 16px"><div class="lbl">Hand-in form · per role</div><div class="mu2" style="font-size:12px;margin-top:-6px">You build it. Each role gets its own.</div>
+      ${roles.length ? `<select id="hrole">${roles.map((x) => `<option value="${x.id}" ${x.id === rid ? 'selected' : ''}>${esc(x.name)}${x.handin && (x.handin.fields || []).length ? ` (${x.handin.fields.length})` : ''}</option>`).join('')}</select>
+      <div id="hfields" class="col" style="gap:6px">${f.fields.map((x, i) => `<div class="row hfr" data-i="${i}"><input value="${esc(x.label)}" maxlength="60" placeholder="e.g. Posts made" style="flex:1"><select>${FTYPES.map(([k, n]) => `<option value="${k}" ${x.type === k ? 'selected' : ''}>${n}</option>`).join('')}</select><button class="btn sm" data-a="hfdel" data-v="${i}">✕</button></div>`).join('') || '<div class="mu2" style="font-size:12.5px">No fields yet: this role isn’t asked for a hand-in.</div>'}</div>
+      <button class="btn sm" data-a="hfadd" style="align-self:flex-start">+ Add field</button>
+      <label class="row" style="cursor:pointer;font-size:13px"><button class="tg ${f.ask !== false ? 'on' : ''}" data-a="tgl" id="hask"></button>Ask at clock-out</label>
+      <label class="row" style="cursor:pointer;font-size:13px"><button class="tg ${f.required ? 'on' : ''}" data-a="tgl" id="hreq"></button>Required to clock out</label>
+      <div class="row"><button class="btn pri" data-a="hfsave">Save form</button><span class="mu2" style="font-size:12px">${O.people.filter((p) => p.role_id === rid && p.active).length} ${r ? esc(r.name) : ''}${O.people.filter((p) => p.role_id === rid && p.active).length === 1 ? '' : 's'}</span></div>` : '<div class="mu2">Make a role first.</div>'}</div>
+      <div class="card" style="padding:14px 16px"><div class="lbl">Also lands in</div><div class="mu" style="font-size:12.5px;margin-top:6px">SA. Management → Report log (source: SA. Team), and with their lead if the lead’s role has the Hand-ins power.</div></div></div></div></div>`;
+}
+const readHForm = () => { const f = S.hDraft; f.fields = [...document.querySelectorAll('#hfields .hfr')].map((r) => { const i = +r.dataset.i, old = f.fields[i] || {}; return { k: old.k, label: r.querySelector('input').value.trim(), type: r.querySelector('select').value }; }); const a = $('#hask'), q = $('#hreq'); if (a) f.ask = a.classList.contains('on'); if (q) f.required = q.classList.contains('on'); return f; };
+
+// ---- Messages ----
+function msgsView(m) {
+  const O = S.O, all = O.messages || [], open = all.filter((x) => !x.done_at), list = S.mAll ? all : open;
+  m.innerHTML = `${topBar('Messages', 'Short work messages from the team', `<span class="seg2"><button class="${S.mAll ? '' : 'on'}" data-a="mall" data-v="0">Open ${open.length}</button><button class="${S.mAll ? 'on' : ''}" data-a="mall" data-v="1">All</button></span>`)}
+  <div class="body" style="max-width:900px"><div class="card" style="padding:6px 18px">${list.length ? list.map((x) => { const p = O.people.find((y) => y.id === x.person_id) || { name: '?' };
+    return `<div class="mrow">${av(p.name, 32)}<div style="flex:1;min-width:0"><div class="row"><b>${esc(p.name)}</b>${kindChip(x.kind)}<span class="mu2" style="font-size:12px">${dayName(ms(x.at))} · ${tm(ms(x.at))}</span><span class="sp"></span>${x.done_at ? `<button class="btn sm" data-a="mdone" data-v="${x.id}|0">Reopen</button>` : `<button class="btn sm" data-a="mdone" data-v="${x.id}|1">✓ Done</button>`}</div>
+      <div style="font-size:13.5px;margin-top:3px">${esc(x.text)}</div>${x.reply ? `<div class="reply"><b>You:</b> ${esc(x.reply)}</div>` : `<div class="row" style="margin-top:8px"><input id="mr-${x.id}" placeholder="Reply (they see it on their home screen)…" maxlength="500" style="flex:1"><button class="btn sm" data-a="mreply" data-v="${x.id}">Reply</button></div>`}</div></div>`; }).join('')
+    : `<div class="mu" style="padding:22px 0;font-size:13px">${S.mAll ? 'No messages in the last 2 weeks.' : 'Nothing open.'} People write to you from the Message tab on their screen.</div>`}</div>
+    <div class="mu2" style="font-size:12px;margin-top:10px">Every message also lands in SA. Management’s Report log (source: SA. Team). Message text never goes to Discord.</div></div>`;
+}
+
+// ---- Discord posts ----
+const EVS = [['clock', 'Clock in / out', '“Maki clocked in · Instagram”'], ['breaks', 'Breaks', 'start / end of breaks'], ['late', 'Late / no-show', 'from the Schedule, after your late rule'], ['stuck', '“Something stopped me”', 'from briefs · never the note itself'], ['handin', 'Hand-in submitted', 'just “Maki handed in”, never the numbers'], ['recap', 'Daily recap', 'hours, hand-ins in/missing, open problems'], ['payday', 'Pay day reminder', 'the day before · date only'], ['announce', 'Your announcements', 'write one below, it posts as your team name']];
+const CHS = [['main', 'Main'], ['alerts', 'Alerts'], ['announce', 'Announce']];
+function discordView(m) {
+  const O = S.O, d = O.discord || { hooks: {}, ev: {} };
+  m.innerHTML = `${topBar('Discord posts', 'SA. Team posts work updates to your Discord by itself')}<div class="body"><div class="schl">
+  <div class="col" style="gap:14px"><div class="card ed" style="padding:14px 16px"><div class="lbl">Channels</div><div class="mu2" style="font-size:12px;margin-top:-6px">Discord → the channel → Edit → Integrations → Webhooks → New Webhook → Copy Webhook URL. One link is enough.</div>
+    ${CHS.map(([k, n]) => `<div class="fr"><span>${n}${d.hooks[k] ? `<small>saved · ends ${esc(d.hooks[k].slice(-4))}</small>` : ''}</span><div class="row"><input id="dh-${k}" class="mono" style="flex:1;font-size:12px" placeholder="${d.hooks[k] ? 'saved (paste a new link to replace)' : 'https://discord.com/api/webhooks/…'}"><button class="btn sm" data-a="dtest" data-v="${k}" ${d.hooks[k] ? '' : 'disabled'}>Test</button>${d.hooks[k] ? `<button class="btn sm bad" data-a="dclear" data-v="${k}">✕</button>` : ''}</div></div>`).join('')}
+    <div class="fr"><span>Your Discord user ID<small>only for @mentions on alerts</small></span><input id="dmen" placeholder="${d.mention ? 'saved ' + esc(d.mention) : 'e.g. 123456789012345678'}" style="max-width:260px"></div></div>
+  <div class="card ed" style="padding:14px 16px"><div class="lbl">What gets posted</div>${EVS.map(([k, n, sub]) => { const e = d.ev[k] || {}; return `<div class="evr" data-k="${k}"><button class="tg ${e.on ? 'on' : ''}" data-a="tgl"></button><div style="flex:1"><b style="font-size:13px">${n}</b><div class="mu2" style="font-size:11.5px">${sub}</div></div>${k === 'recap' || k === 'payday' ? `<input type="time" class="evt" value="${esc(e.time || (k === 'recap' ? '23:00' : '09:00'))}" style="width:110px">` : ''}${k === 'stuck' ? `<label class="row mu" style="font-size:12px;gap:4px"><input type="checkbox" class="evm" ${e.mention ? 'checked' : ''}>@ me</label>` : ''}<select class="evc">${CHS.map(([c, cn]) => `<option value="${c}" ${e.ch === c ? 'selected' : ''}>#${cn.toLowerCase()}</option>`).join('')}</select></div>`; }).join('')}
+    <div class="row"><button class="btn pri" data-a="dsave">Save</button><span class="mu2" style="font-size:12px">Times are ${esc((O.settings.tz || '').replace('_', ' '))} time.</span></div></div></div>
+  <div class="col" style="gap:14px"><div class="card ed" style="padding:14px 16px"><div class="lbl">Write an announcement</div><textarea id="dann" rows="4" maxlength="1800" placeholder="e.g. New rule from Monday: hand-ins are required before clock-out."></textarea>
+    <div class="row"><label class="row mu" style="font-size:12.5px;gap:6px;cursor:pointer"><input type="checkbox" id="devery">@everyone</label><span class="sp"></span><button class="btn pri" data-a="dpost">Post</button></div>
+    ${(O.announcements || []).length ? `<div class="mu2" style="font-size:12px">Last: ${O.announcements.map((a) => `“${esc(a.text.slice(0, 50))}${a.text.length > 50 ? '…' : ''}” · ${ago(ms(a.at))}`).join('<br>')}</div>` : ''}</div>
+    <div class="card" style="padding:14px 16px"><div class="lbl">Never posted</div><div class="mu" style="font-size:12.5px;margin-top:6px">Pay, rates, earnings · account logins · message text · hand-in numbers · notes from “something stopped me” · anything from briefs/SOPs.</div></div>
+    <div class="card" style="padding:14px 16px"><div class="lbl">Timed posts</div><div class="mu" style="font-size:12.5px;margin-top:6px">Late alerts, the recap and the pay day reminder are checked every 5 minutes by the SA. Team server (its Cron Trigger).</div></div></div></div></div>`;
+}
+
 // ---- Briefs & SOPs (sent from SA. Management) ----
 function sopsView(m) {
   const O = S.O, sops = O.sops || [], briefs = O.briefs || [], team = O.people.filter((p) => !p.is_owner && p.active);
@@ -404,7 +543,17 @@ function teamDataFor(p) {
   const O = S.O;
   const brief = (O.briefs || []).find((b) => b.person_id === p.id) || null;
   return { me: p, role: roleOf(p), settings: O.settings, models: O.models, clocks: O.clocks.filter((c) => c.person_id === p.id), breaks: O.breaks.filter((b) => b.person_id === p.id),
-    team: teamFor(p), lead: (() => { const l = O.people.find((x) => x.id === p.lead_id); return l ? { name: l.name } : null; })(), brief, sops: (O.sops || []).filter((s) => s.everyone || (brief && (brief.sops || []).includes(s.id))), accounts: (O.accounts || []).filter((a) => a.person_id === p.id), reports: (O.reports || []).filter((r) => r.person_id === p.id && Date.now() - ms(r.at) < 2 * DAY) };
+    team: teamFor(p), lead: (() => { const l = O.people.find((x) => x.id === p.lead_id); return l ? { name: l.name } : null; })(), brief, sops: (O.sops || []).filter((s) => s.everyone || p.sop_all || (p.sop_access || []).includes(s.id) || (brief && (brief.sops || []).includes(s.id))), accounts: (O.accounts || []).filter((a) => a.person_id === p.id), reports: (O.reports || []).filter((r) => r.person_id === p.id && Date.now() - ms(r.at) < 2 * DAY),
+    ...extrasFor(p) };
+}
+function extrasFor(p) {
+  const O = S.O, r = roleOf(p), form = r && r.handin && (r.handin.fields || []).length ? r.handin : null, tz = O.settings.tz || 'America/Chicago', R = O.sched || {};
+  const last = O.clocks.filter((c) => c.person_id === p.id && c.ended_at && Date.now() - ms(c.ended_at) < 2 * DAY).sort((a, z) => ms(z.started_at) - ms(a.started_at))[0];
+  const pend = form && form.ask !== false && last && !(O.handins || []).some((h) => h.clock_id === last.id) ? { clock_id: last.id, shift: dayName(ms(last.started_at)) + ' ' + tm(ms(last.started_at)) + '–' + tm(ms(last.ended_at)) } : null;
+  const pids = R.see_team ? O.people.filter((x) => x.active && !x.is_owner).map((x) => x.id) : [p.id], days = SAT.weekOf(SAT.today(tz));
+  const shifts = days.flatMap((d) => pids.map((pid) => { const x = SAT.shiftOn(O.shifts || [], O.shiftx || [], pid, d); return x ? { person_id: pid, date: d, ...x } : null; }).filter(Boolean));
+  return { handin_form: form, pending_handin: pend, handins: (O.handins || []).filter((h) => h.person_id === p.id && Date.now() - ms(h.at) < 7 * DAY), messages: (O.messages || []).filter((m) => m.person_id === p.id && Date.now() - ms(m.at) < 7 * DAY),
+    week: { days, shifts, people: pids.map((id) => ({ id, name: first((O.people.find((x) => x.id === id) || {}).name) })), see_team: !!R.see_team, only_shift: !!R.only_shift, tz } };
 }
 // ---- practice ("Try it"): their real screen code, their real setup, nothing saved ----
 function pracNew(p) {
@@ -413,7 +562,7 @@ function pracNew(p) {
 }
 const pracOpen = () => S.prac.E.clocks.find((c) => !c.ended_at);
 const PA = {
-  ttab: (v) => { S.prac.st.tab = v; if (v === 'team') S.prac.done.team = true; if (v === 'week' && S.prac.done.clockout) S.prac.done.week = true; if (v === 'accts') S.prac.done.accts = true; },
+  ttab: (v) => { S.prac.st.tab = v; if (v === 'msg') S.prac.st.msg = false; if (v === 'team') S.prac.done.team = true; if (v === 'week' && S.prac.done.clockout) S.prac.done.week = true; if (v === 'accts') S.prac.done.accts = true; },
   pick: (v) => { const k = S.prac.st.pick.indexOf(v); if (k >= 0) S.prac.st.pick.splice(k, 1); else S.prac.st.pick.push(v); },
   clockin: () => {
     const P = S.prac, E = P.E; if (E.models.length && !P.st.pick.length) return toast('Pick who you’re covering first.', 2500);
@@ -440,8 +589,16 @@ const PA = {
   bstuckno: () => { S.prac.st.stuck = null; },
   bstucksend: (v) => { const t = document.querySelector('#pvbox #stucknote'), note = t ? t.value.trim() : ''; if (!note) return toast('Say what stopped you.'); const x = S.prac.E.brief.body.accounts.find((a) => tkey(a) === v); S.prac.E.reports.unshift({ id: 'ps' + Date.now(), acct_key: x.key, day: x.day, kind: 'stuck', note, handle: x.handle, at: new Date().toISOString() }); S.prac.st.stuck = null; S.prac.done.brief = true; toast('Sent (practice)'); },
   cancelco: () => { S.prac.st.co = false; },
+  msgkind: (v) => { S.prac.st.mk = v; },
+  msgopen: () => { S.prac.st.msg = true; },
+  msgclose: () => { S.prac.st.msg = false; },
+  msgsend: () => { const t = document.querySelector('#pvbox #msgtext'), v = t ? t.value.trim() : ''; if (!v) return toast('Write something first.'); S.prac.E.messages = [{ id: 'pm' + Date.now(), kind: S.prac.st.mk || 'update', text: v, at: new Date().toISOString() }, ...(S.prac.E.messages || [])]; S.prac.st.msg = false; S.prac.done.msg = true; toast('Sent (practice, Sola doesn’t get it)'); },
+  hlate: () => { S.prac.st.hl = true; },
+  hlateno: () => { S.prac.st.hl = false; },
+  hlatesend: () => { S.prac.st.hl = false; S.prac.E.pending_handin = null; toast('Hand-in sent (practice)'); },
   clockout: () => {
-    const P = S.prac, c = pracOpen(), now = new Date().toISOString(); const t = document.querySelector('#pvbox #handover');
+    const P = S.prac, c = pracOpen(), now = new Date().toISOString(); const t = document.querySelector('#pvbox #handover'), f = P.E.handin_form;
+    if (f && f.ask !== false && f.required && !readHi(f, document.querySelector('#pvbox'))) return toast('Fill in the hand-in first (it’s required for this role).', 3500);
     P.E.breaks.filter((b) => b.clock_id === c.id && !b.ended_at).forEach((b) => { b.ended_at = now; });
     c.break_secs = Math.round(P.E.breaks.filter((b) => b.clock_id === c.id).reduce((a, b) => a + ms(b.ended_at) - ms(b.started_at), 0) / 1000);
     c.ended_at = now; c.handover = t ? t.value.trim() || null : null; P.st.co = false; P.st.tab = 'home'; P.done.clockout = true;
@@ -459,6 +616,9 @@ function wtsView(m) {
     live.brief ? `Today’s brief from SA. Management: ${plural(((live.brief.body || {}).accounts || []).length, 'account')}, with Done / Something stopped me buttons` : 'No brief yet (send one from SA. Management → Briefs)',
     live.accounts.length ? `Logins for their own ${plural(live.accounts.length, 'account')}: ${live.accounts.map((a) => a.handle).join(', ')}` : 'No account logins (none assigned to them in SA. Management)',
     live.sops.length ? `SOPs: ${live.sops.map((x) => x.title).join(', ')}` : 'No SOPs',
+    (() => { const n = live.week.shifts.filter((x) => x.person_id === p.id).length; return n ? `Their schedule: ${plural(n, 'shift')} this week${live.week.see_team ? ' (and teammates’ shifts)' : ''}` : 'No shifts on the Schedule this week'; })(),
+    live.handin_form ? `A hand-in at clock-out: ${live.handin_form.fields.map((x) => x.label).join(', ')}${live.handin_form.required ? ' (required)' : ''}` : 'No hand-in (none set for their role)',
+    'Message Sola (Update / Question / Problem) and your replies',
     live.team ? `My team: ${plural(live.team.people.length, 'person')} (${SCOPE[live.team.scope].toLowerCase()}) · ${POWERS.filter(([k]) => live.team.powers[k]).map(([, n]) => n.split(':')[0].replace(' (never pay)', '').toLowerCase()).join(', ')}` : 'Only their own shift (no authority)'];
   const hidden = ['Any rate, commission, sales or pay total (until you send payslips in phase 4)', 'Anyone else: names, hours, shifts or notes', 'Anyone else’s accounts, logins or brief', 'Live floor, People, Departments & roles, Settings', 'Your private note about them', 'Their own employee ID (nobody can read it back, not even you)'];
   const tryOn = !!S.wtsTry && p.active;
@@ -483,7 +643,8 @@ function wtsView(m) {
       ...(live.team ? [['team', `My team: ${plural(live.team.people.length, 'person')}`, `Open Team (or “My team” on shift): ${SCOPE[live.team.scope].toLowerCase()}, only what you ticked for ${r ? r.name : 'the role'}.`, '']] : []),
       ...(live.accounts.length ? [['accts', `Accounts tab: ${plural(live.accounts.length, 'login')}`, 'Off shift, open Accounts. Their real passwords only show on their phone.', '']] : []),
       ['brk', can ? 'Break works' : 'No Break button', can ? `Breaks are on ${p.breaks_override === true ? 'just for ' + first(p.name) : 'for ' + (r ? r.name + 's' : 'everyone without a role')}. Try it while clocked in.` : `Breaks are off ${p.breaks_override === false ? 'just for ' + first(p.name) : 'for ' + (r ? r.name + 's' : 'them')}, so the button doesn’t show.`, ''],
-      ['clockout', 'Clock out', 'Unticked steps get a warning, then the handover note.', ''],
+      ['clockout', 'Clock out', `Unticked steps get a warning${live.handin_form && live.handin_form.ask !== false ? ', the hand-in (' + live.handin_form.fields.length + ' fields)' : ''}, then the handover note.`, ''],
+      ['msg', 'Message Sola', 'Off shift: open the Message tab (on shift: 💬 Message Sola) and send one. In practice it goes nowhere.', ''],
       ['week', 'My week', 'After clocking out, open My week: the practice shift shows with its hours and checklist %.', ''],
     ];
     if (!O.models.length) D.pick = true;
@@ -517,7 +678,8 @@ function settingsView(m) {
   m.innerHTML = `${topBar('Settings', 'Team name, pay day, models, the team link')}<div class="body" style="max-width:860px">
   <div class="card ed"><b class="bric" style="font-size:18px">Basics</b>
     <div class="fr"><span>Team name<small>shown in your sidebar</small></span><input id="sname" value="${esc(O.settings.team_name || 'SA. Team')}" maxlength="40"></div>
-    <div class="fr"><span>Next pay day<small>the team sees only the date</small></span><input type="date" id="spay" value="${esc(O.settings.next_pay_day || '')}"></div>
+    ${O.settings.pay_synced ? `<div class="fr"><span>Pay day<small>the team sees only the date</small></span><div><div class="row" style="border:1px solid var(--ln2);border-radius:10px;padding:8px 12px"><span style="flex:1">${esc(O.settings.pay_label)}</span><span class="chip" style="color:#0a0a0a;background:var(--ac)">next: ${esc(payDay(O.settings.next_pay_day))}</span></div><div class="mu2" style="font-size:12px;margin-top:6px">🔗 Synced from SA. Management (Team pay → Pay schedule) · then ${(O.settings.pay_next || []).slice(1).map(payDay).join(', ')}</div></div></div>`
+      : `<div class="fr"><span>Next pay day<small>the team sees only the date</small></span><div><input type="date" id="spay" value="${esc(O.settings.next_pay_day || '')}"><div class="mu2" style="font-size:12px;margin-top:6px">Or set a pay schedule in SA. Management (Team pay) and it fills in by itself.</div></div></div>`}
     <div class="row"><button class="btn pri" data-a="saves">Save</button></div></div>
   <div class="card ed"><b class="bric" style="font-size:18px">Models</b><div class="mu2" style="font-size:12px;margin-top:-8px">What people pick when they clock in (“who are you covering?”).</div>
     <div class="steps">${O.models.map((x) => `<div class="step" data-mid="${x.id}"><input value="${esc(x.name)}" maxlength="60"><button class="btn sm" data-a="savem" data-v="${x.id}">Save</button><button class="btn sm bad" data-a="delm" data-v="${x.id}">✕</button></div>`).join('')}
@@ -556,6 +718,13 @@ const A = {
   bstuck: (v) => { S.stuck = v; teamPage(); const t = $('#stucknote'); if (t) t.focus(); },
   bstuckno: () => { S.stuck = null; teamPage(); },
   bstucksend: (v) => act(async () => { const note = ($('#stucknote') || {}).value || ''; if (!note.trim()) throw new Error('Say what stopped you.'); const r = await call('t_report', { p_key: v, p_kind: 'stuck', p_note: note.trim() }); S.E.reports = [r, ...(S.E.reports || [])]; S.stuck = null; teamPage(); toast('Sent to Sola'); }),
+  msgkind: (v) => { const t = ($('#msgtext') || {}).value; S.mk = v; teamPage(); const x = $('#msgtext'); if (x && t) x.value = t; },
+  msgopen: () => { S.msgOpen = true; teamPage(); window.scrollTo(0, 0); const x = $('#msgtext'); if (x) x.focus(); },
+  msgclose: () => { S.msgOpen = false; teamPage(); },
+  msgsend: () => act(async () => { const t = (($('#msgtext') || {}).value || '').trim(); if (!t) throw new Error('Write something first.'); const m = await call('t_msg_send', { p_kind: S.mk || 'update', p_text: t }); S.E.messages = [m, ...(S.E.messages || [])]; S.msgOpen = false; teamPage(); }, 'Sent to Sola'),
+  hlate: () => { S.hl = true; S.hv = null; teamPage(); window.scrollTo(0, 0); },
+  hlateno: () => { S.hl = false; teamPage(); },
+  hlatesend: () => act(async () => { const v = readHi(S.E.handin_form); if (!v) throw new Error('Fill something in first.'); await call('t_handin_late', { p_cid: S.E.pending_handin.clock_id, p_values: v }); S.hl = false; S.hv = null; await reTeam(); }, 'Hand-in sent'),
   pick: (v) => { const k = S.pick.indexOf(v); if (k >= 0) S.pick.splice(k, 1); else S.pick.push(v); teamPage(); },
   clockin: () => act(async () => { if (S.E.models.length && !S.pick.length) throw new Error('Pick who you’re covering first.'); await call('t_clock_in', { p_models: S.pick }); S.co = false; await reTeam(); }, 'Clocked in. Have a good one'),
   breakstart: () => act(async () => { await call('t_break_toggle'); await reTeam(); }, 'Break started'),
@@ -563,7 +732,9 @@ const A = {
   tick: (v) => act(async () => { const open = S.E.clocks.find((c) => !c.ended_at); const now = !open.checklist[+v].done; open.checklist = await call('t_tick', { p_idx: +v, p_done: now }); teamPage(); }),
   costart: () => { S.co = true; S.note = ''; teamPage(); },
   cancelco: () => { S.co = false; teamPage(); },
-  clockout: () => act(async () => { const note = ($('#handover') || {}).value || ''; const c = await call('t_clock_out', { p_handover: note }); S.co = false; S.tab = 'home'; await reTeam(); toast(`Clocked out · ${hm(ms(c.ended_at) - ms(c.started_at) - (c.break_secs || 0) * 1000)} today. Nice work`, 4000); }),
+  clockout: () => act(async () => { const note = ($('#handover') || {}).value || '', f = S.E.handin_form, hv = f && f.ask !== false ? readHi(f) : null;
+    if (f && f.required && f.ask !== false && f.fields.length && !hv) throw new Error('Fill in your hand-in first.');
+    const c = await call('t_clock_out', { p_handover: note, p_handin: hv }); S.co = false; S.hv = null; S.tab = 'home'; await reTeam(); toast(`Clocked out · ${hm(ms(c.ended_at) - ms(c.started_at) - (c.break_secs || 0) * 1000)} today. Nice work`, 4000); }),
   // owner
   page: (v) => { setPage(v); ownerView(); softReload(); },
   refresh: () => act(() => reOwner(false), 'Up to date'),
@@ -615,8 +786,34 @@ const A = {
   wtstry: (v) => { S.wtsTry = v === '1'; if (S.wtsTry) S.prac = null; paintMain(); },
   pracreset: () => { S.prac = null; paintMain(); toast('Practice reset'); },
   wtstab: (v) => { S.wtsTab = v; paintMain(); },
+  // schedule
+  wk: (v) => { S.wkOff = +v === 0 ? 0 : (S.wkOff || 0) + +v; paintMain(); },
+  shedit: (v) => { const [pid, d] = v.split('|'); shiftDlg(pid, d); },
+  rscope2: (v, el) => { const b = el.closest('#shsc'); b.dataset.v = v; b.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.v === v)); },
+  shsave: () => act(async () => { const d = S.shd, a = $('#shs').value, z = $('#she').value; if (!a || !z) throw new Error('Set both times.'); await call('t_shift_save', { p_pid: d.pid, p_date: d.date, p_start: a, p_end: z, p_what: $('#shw').value.trim(), p_scope: $('#shsc').dataset.v }); $('#dlg').innerHTML = ''; await reOwner(); }, 'Shift saved'),
+  shdel: () => act(async () => { const d = S.shd; await call('t_shift_remove', { p_pid: d.pid, p_date: d.date, p_scope: $('#shsc').dataset.v }); $('#dlg').innerHTML = ''; await reOwner(); }, 'Removed'),
+  tgl: (v, el) => el.classList.toggle('on'),
+  schedrules: () => act(async () => { await call('t_sched_rules', { p_rules: { late_min: +$('#slate').value || 10, see_team: $('#sseet').classList.contains('on'), only_shift: $('#sonly').classList.contains('on') }, p_tz: myTz() }); await reOwner(); }, 'Rules saved'),
+  // hand-ins
+  hall: (v) => { S.hAll = v === '1'; paintMain(); },
+  hfadd: () => { readHForm(); S.hDraft.fields.push({ label: '', type: 'number' }); paintMain(); const r = [...document.querySelectorAll('#hfields .hfr input')].pop(); if (r) r.focus(); },
+  hfdel: (v) => { readHForm(); S.hDraft.fields.splice(+v, 1); paintMain(); },
+  hfsave: () => act(async () => { const f = readHForm(); await call('t_handin_form', { p_rid: f.rid, p_form: { fields: f.fields.filter((x) => x.label), ask: f.ask, required: f.required } }); S.hDraft = null; await reOwner(); }, 'Form saved'),
+  hrev: (v) => act(async () => { await call('t_handin_review', { p_hid: v, p_reply: null }); await reOwner(false); }, 'Marked reviewed'),
+  hreply: (v) => act(async () => { const t = ($('#hr-' + v) || {}).value || ''; if (!t.trim()) throw new Error('Write a reply.'); await call('t_handin_review', { p_hid: v, p_reply: t.trim() }); await reOwner(false); }, 'Reply sent'),
+  // messages
+  mall: (v) => { S.mAll = v === '1'; paintMain(); },
+  mdone: (v) => act(async () => { const [id, d] = v.split('|'); await call('t_msg_done', { p_mid: id, p_done: d === '1' }); await reOwner(false); }),
+  mreply: (v) => act(async () => { const t = ($('#mr-' + v) || {}).value || ''; if (!t.trim()) throw new Error('Write a reply.'); await call('t_msg_reply', { p_mid: v, p_text: t.trim() }); await reOwner(false); }, 'Reply sent'),
+  // discord
+  dsave: () => act(async () => { const hooks = {}; CHS.forEach(([k]) => { const v = $('#dh-' + k).value.trim(); if (v) hooks[k] = v; }); const ev = {};
+    document.querySelectorAll('.evr').forEach((r) => { const k = r.dataset.k, t = r.querySelector('.evt'), mm = r.querySelector('.evm'); ev[k] = { on: r.querySelector('.tg').classList.contains('on'), ch: r.querySelector('.evc').value, ...(t ? { time: t.value } : {}), ...(mm ? { mention: mm.checked } : {}) }; });
+    const men = $('#dmen').value.trim(); await call('t_discord_save', { p_hooks: hooks, p_ev: ev, ...(men ? { p_mention: men } : {}) }); await reOwner(); }, 'Saved'),
+  dclear: (v) => act(async () => { await call('t_discord_save', { p_hooks: { [v]: '' } }); await reOwner(); }, 'Removed'),
+  dtest: (v) => act(async () => { await call('t_discord_test', { p_ch: v }); }, 'Test post sent: check Discord'),
+  dpost: () => act(async () => { const t = $('#dann').value.trim(); if (!t) throw new Error('Write the announcement.'); await call('t_announce', { p_text: t, p_everyone: $('#devery').checked }); await reOwner(); }, 'Posted'),
   // settings
-  saves: () => act(async () => { await call('t_save_settings', { p_team_name: $('#sname').value.trim(), p_pay_day: $('#spay').value || null }); await reOwner(); }, 'Saved'),
+  saves: () => act(async () => { const a = { p_team_name: $('#sname').value.trim(), p_tz: myTz() }; if ($('#spay')) a.p_pay_day = $('#spay').value || null; await call('t_save_settings', a); await reOwner(); }, 'Saved'),
   addm: () => act(async () => { const n = $('#newm').value.trim(); if (!n) throw new Error('Type a name.'); if (S.O.models.some((x) => x.name.toLowerCase() === n.toLowerCase())) throw new Error('Already there.'); await call('t_save_model', { p_mid: null, p_name: n }); await reOwner(); }, 'Added'),
   savem: (v) => act(async () => { const n = document.querySelector(`[data-mid="${v}"] input`).value.trim(); if (!n) throw new Error('Type a name.'); await call('t_save_model', { p_mid: v, p_name: n }); await reOwner(); }, 'Saved'),
   delm: async (v) => { const x = S.O.models.find((y) => y.id === v); if (!x || !(await ask(`Remove ${x.name}?`, 'Past shifts keep the name; it just stops being a choice at clock-in.', 'Remove', true))) return; act(async () => { await call('t_remove_model', { p_mid: v }); await reOwner(); }, 'Removed'); },
@@ -626,14 +823,18 @@ document.addEventListener('click', (e) => {
   if (el.closest('#pvbox')) { e.preventDefault(); if (S.wtsTry && S.prac && PA[el.dataset.a]) { PA[el.dataset.a](el.dataset.v, el); return paintMain(); } return toast(S.wtsTry ? 'That one only works on their own phone' : 'Preview only: press ▶ Try it to click through it'); }
   const f = A[el.dataset.a]; if (f) { e.preventDefault(); f(el.dataset.v, el); }
 });
-document.addEventListener('change', (e) => { if (e.target.id === 'wtsp') { S.wts = e.target.value; S.prac = null; paintMain(); } });
+document.addEventListener('change', (e) => { if (e.target.id === 'wtsp') { S.wts = e.target.value; S.prac = null; paintMain(); } if (e.target.id === 'hrole') { S.hRole = e.target.value; S.hDraft = null; paintMain(); } });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'ocode') A.claim();
   if (e.key === 'Enter' && e.target.id === 'sid') A.signin();
   if (e.key === 'Enter' && e.target.id === 'newm') A.addm();
   if (e.key === 'Enter' && e.target.closest && e.target.closest('.step') && e.target.closest('#pext, #rsteps')) { e.preventDefault(); A.stadd(null, e.target.closest('.steps').querySelector('[data-a="stadd"]')); }
 });
-document.addEventListener('input', (e) => { if (e.target.id === 'handover') S.note = e.target.value; });
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'handover') S.note = e.target.value;
+  if (e.target.id === 'msgtext') { const n = $('#msgn'); if (n) n.textContent = e.target.value.length + ' / 280'; }
+  if (/^hi-/.test(e.target.id || '') && !e.target.closest('#pvbox')) { const f = S.E && S.E.handin_form; if (f) S.hv = readHi(f) || {}; }
+});
 
 // ---- clocks on screen tick every second; the owner's Live floor re-reads every 20s ----
 function tick() {
