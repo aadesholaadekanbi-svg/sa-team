@@ -155,3 +155,22 @@ input:disabled,select:disabled{opacity:.55;cursor:not-allowed}
 .hif{display:flex;flex-direction:column;gap:4px;margin:6px 0}.hif label{font-size:12px;color:var(--mu);font-weight:600}.hif input,.hif textarea{width:100%;background:#0f0f0f}
 .msgr{padding:7px 0;border-top:1px solid #1f1f1f}.msgr:first-of-type{border-top:0}
 .wkh,.wkr{display:grid;grid-template-columns:70px repeat(7,1fr);gap:3px;font-size:11px;text-align:center;align-items:center;padding:3px 0}.wkh b,.wkr b{text-align:left;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wkh span{color:var(--mu2)}.wkr span{color:#444}.wkr span.on{color:var(--ac);font-weight:700}
+
+/* ---- Discord bot page ---- */
+.btbl td{padding:8px 6px;border-top:1px solid #1f1f1f;font-size:12.5px;vertical-align:middle}.btbl tr:first-child td{border-top:0}
+.bcode{font-size:44px;font-weight:800;letter-spacing:.2em;text-align:center;color:var(--ac);background:var(--p2);border-radius:14px;padding:12px;margin:8px 0}
+.src{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:6px;font-size:10.5px;font-weight:700;background:var(--p3);color:var(--mu)}.src.discord{background:#5865f222;color:#9ba4ff}
+.bfeed{display:flex;flex-direction:column;margin-top:6px}.bfeed>div{display:grid;grid-template-columns:70px 1fr auto 64px;gap:8px;align-items:center;padding:6px 0;border-top:1px solid #1f1f1f;font-size:12.5px}.bfeed>div:first-child{border-top:0}.bfeed small{color:var(--mu2)}.bfeed span:not(.src){color:var(--mu)}.bfeed .src{justify-self:end}
+.dcwin{background:#313338;border-radius:12px;padding:10px 4px 6px;color:#dbdee1;font:14px/1.375 "gg sans","Noto Sans","Segoe UI",system-ui,sans-serif;position:relative;overflow:hidden}
+.dcchan{color:#f2f3f5;font-weight:700;padding:0 12px 8px;border-bottom:1px solid #3f4147;margin-bottom:6px}
+.dcmsg{display:flex;gap:10px;padding:6px 12px}.dcmsg.eph{background:#2e3035;border-left:2px solid #5865f2;margin:4px 0}.dcav{width:36px;height:36px;border-radius:50%;background:#c6ff4d;color:#0a0a0a;font-weight:900;display:grid;place-items:center;flex:none;font-size:12px}
+.dcb0{min-width:0;flex:1}.dch{display:flex;gap:6px;align-items:center}.dch b{color:#f2f3f5}.dch small{color:#949ba4;font-size:11px}.dcbot{background:#5865f2;color:#fff;font-size:9.5px;font-weight:700;border-radius:4px;padding:0 4px;height:15px;line-height:15px}
+.dct{margin-top:2px;word-wrap:break-word}.dct b,.dce b{color:#f2f3f5}.dcm{background:#5865f23d;color:#c9cdfb;border-radius:3px;padding:0 2px}
+.dce{background:#2b2d31;border-left:4px solid #c6ff4d;border-radius:4px;padding:8px 12px;margin-top:6px;font-size:13px;display:flex;flex-direction:column;gap:4px}.dce small{color:#949ba4;font-size:11.5px}
+.dcrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.dcb{height:32px;padding:0 14px;border-radius:4px;font-size:13.5px;font-weight:600;color:#fff;border:0;cursor:pointer}.dcb.grn{background:#248046}.dcb.red{background:#da373c}.dcb.gry{background:#4e5058}.dcb.blu{background:#5865f2}.dcb:hover{filter:brightness(1.12)}.dcb:disabled{cursor:default;filter:none}
+.dceph{color:#949ba4;font-size:11.5px;margin-top:6px}
+.dcmod{position:absolute;left:8%;right:8%;top:40px;background:#313338;border:1px solid #1e1f22;border-radius:8px;box-shadow:0 10px 40px #000a;padding:16px;display:flex;flex-direction:column;gap:10px;z-index:3}.dcmod b{color:#f2f3f5;font-size:16px}
+.dcmod label{display:flex;flex-direction:column;gap:6px;font-size:11.5px;font-weight:700;text-transform:uppercase;color:#b5bac1}.dcmod input,.dcmod textarea{background:#1e1f22;border:0;border-radius:4px;color:#dbdee1;padding:8px 10px;font:14px "gg sans","Segoe UI",sans-serif;text-transform:none}
+.dccmd{display:flex;gap:6px;padding:8px 12px 2px;border-top:1px solid #3f4147;margin-top:8px}.dccmd button{background:#383a40;color:#dbdee1;border-radius:6px;padding:4px 10px;font-size:12.5px;border:0;cursor:pointer;font-family:inherit}.dccmd button:hover{background:#404249}
+.dcin{display:flex;gap:6px;align-items:center;padding:6px 12px}.dcin input{flex:1;background:#383a40;border:0;border-radius:6px;color:#dbdee1;padding:6px 10px}.dcin select{background:#383a40;color:#dbdee1;border:0;border-radius:6px;height:30px}.dcin .mono{color:#949ba4;font-size:12px}
+.schl.bgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}@media (max-width:1100px){.schl.bgrid{grid-template-columns:1fr}}

@@ -195,8 +195,8 @@ function teamView(E, st, pv) {
         <div class="tcard row" style="gap:12px;align-items:flex-start"><div style="font-size:22px">🗓</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${pd ? 'Next pay day: ' + pd.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'Pay day'}</b><br>Your payslip shows up here once it’s marked paid.</div></div>
         ${nextShiftCard(E)}${E.pending_handin && E.handin_form && E.handin_form.ask !== false ? `<button class="tcard row" data-a="hlate" style="gap:12px;align-items:flex-start;width:100%;text-align:left;border-color:#5a4a14"><div style="font-size:22px">📥</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5;flex:1"><b style="color:var(--tx)">Hand in for your last shift</b><br>${esc(E.pending_handin.shift)} · takes a minute</div><span class="mu2">›</span></button>` : ''}${fromSola(E)}
         ${E.brief ? `<div class="tcard row" style="gap:12px;align-items:flex-start;border-color:#3a4a14"><div style="font-size:22px">📋</div><div style="font-size:12.5px;color:var(--mu);line-height:1.5"><b style="color:var(--tx)">${esc(E.brief.title)}</b><br>${plural(((E.brief.body || {}).accounts || []).length, 'account')} to work on${E.brief.mode === 'clockin' ? ', ready when you clock in' : ''}. Clock in to start.</div></div>` : ''}
-        ${models.length ? `<div class="tcard"><div style="font-weight:700;margin-bottom:8px">Who are you covering?</div><div class="mdl">${models.map((m) => `<button class="${(st.pick || []).includes(m.name) ? 'on' : ''}" data-a="pick" data-v="${esc(m.name)}">${esc(m.name)}</button>`).join('')}</div></div>` : ''}
-        <div class="sp"></div><button class="big go" data-a="clockin">Clock in</button>`;
+        ${models.length && settings.clock_where !== 'discord' ? `<div class="tcard"><div style="font-weight:700;margin-bottom:8px">Who are you covering?</div><div class="mdl">${models.map((m) => `<button class="${(st.pick || []).includes(m.name) ? 'on' : ''}" data-a="pick" data-v="${esc(m.name)}">${esc(m.name)}</button>`).join('')}</div></div>` : ''}
+        <div class="sp"></div>${settings.clock_where === 'discord' ? `<div class="tcard" style="text-align:center;border-color:#3b3f8f"><b>Clock in from Discord</b><div class="mu" style="font-size:12.5px;margin-top:4px">Tap <b>▶️ Clock in</b> on the panel${settings.bot_panel ? ' in <b>#' + esc(settings.bot_panel) + '</b>' : ''}. Breaks, clock-out and hand-ins work here too.</div></div>` : '<button class="big go" data-a="clockin">Clock in</button>'}`;
     }
   }
   return `<div class="tw ${pv ? 'pv' : ''}">${head}${body}</div>`;
@@ -302,7 +302,7 @@ function weekCard(E) { const W = E.week; if (!W) return ''; const mine = W.shift
 // =====================================================================================================
 // the owner's side
 // =====================================================================================================
-const NAV = [['live', 'live', 'Live floor'], ['people', 'ppl', 'People'], ['roles', 'dep', 'Departments & roles'], ['sched', 'cal', 'Schedule'], ['handins', 'inb', 'Hand-ins'], ['msgs', 'msg', 'Messages'], ['sops', 'sop', 'Briefs & SOPs'], ['discord', 'dc', 'Discord posts'], ['wts', 'eye', 'What they see'], ['settings', 'set', 'Settings']];
+const NAV = [['live', 'live', 'Live floor'], ['people', 'ppl', 'People'], ['roles', 'dep', 'Departments & roles'], ['sched', 'cal', 'Schedule'], ['handins', 'inb', 'Hand-ins'], ['msgs', 'msg', 'Messages'], ['sops', 'sop', 'Briefs & SOPs'], ['discord', 'dc', 'Discord posts'], ['bot', 'dc', 'Discord bot'], ['wts', 'eye', 'What they see'], ['settings', 'set', 'Settings']];
 const SOON = [['pay', 'Pay', 4]];
 const badge = (k) => { const O = S.O; if (!O) return 0; if (k === 'handins') return (O.handins || []).filter((h) => !h.reviewed_at).length; if (k === 'msgs') return (O.messages || []).filter((m) => !m.done_at).length; if (k === 'sched') return (O.late || []).length; return 0; };
 function ownerView() {
@@ -317,7 +317,7 @@ function ownerView() {
 }
 function paintMain() {
   const m = $('#main'); if (!m) return;
-  ({ live: liveView, people: peopleView, roles: rolesView, sched: schedView, handins: handinsView, msgs: msgsView, sops: sopsView, discord: discordView, wts: wtsView, settings: settingsView }[S.page] || liveView)(m);
+  ({ live: liveView, people: peopleView, roles: rolesView, sched: schedView, handins: handinsView, msgs: msgsView, sops: sopsView, discord: discordView, bot: botView, wts: wtsView, settings: settingsView }[S.page] || liveView)(m);
   tick();
 }
 const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } };
@@ -353,7 +353,7 @@ function liveView(m) {
   <div class="body"><div class="kpis">${kpis.map((k) => `<div class="card kpi ${k[3]}"><span>${k[0]}</span><b>${k[1]}</b><small>${esc(k[2])}</small></div>`).join('')}</div>
   ${team.length ? `<div class="live"><div class="card" style="padding:14px"><div class="row"><span class="lbl">Everyone</span><span class="sp"></span><span class="mu2" style="font-size:11.5px">click someone to open them</span></div>
     <div class="pgrid">${st.sort((a, z) => (z.open ? 1 : 0) - (a.open ? 1 : 0)).map(({ p, open, b, last }) => { const r = roleOf(p); return `<button class="pc ${!p.last_seen ? 'flag' : ''}" data-a="openp" data-v="${p.id}"><div class="r1">${av(p.name)}<div style="min-width:0;flex:1"><b>${esc(p.name)}</b> ${chip(r)}<div>${open ? (b ? `<span class="st br"><i></i>Break <span data-t0="${ms(b.started_at)}" data-fmt="hm">${hm(Date.now() - ms(b.started_at))}</span></span>` : `<span class="st on"><i></i><span data-t0="${ms(open.started_at)}" data-off="${brk(open, O.breaks)}" data-fmt="hm">${hm(worked(open, O.breaks))}</span></span>`) : `<span class="st off"><i></i>${!p.last_seen ? 'Hasn’t signed in yet' : last ? 'Off · last on ' + ago(ms(last.ended_at)) : 'Off · no shifts yet'}</span>`}${lateChip(p.id)}</div></div></div>
-      <div class="w">${open ? `On <b>${esc((open.models || []).join(', ') || '—')}</b> since ${tm(ms(open.started_at))}` : `${roleOf(p) ? esc(deptOf(roleOf(p)) ? deptOf(roleOf(p)).name : roleOf(p).name) : 'No role'}${p.discord ? ' · @' + esc(p.discord) : ''}`}</div>
+      <div class="w">${open ? `On <b>${esc((open.models || []).join(', ') || '—')}</b> since ${tm(ms(open.started_at))}${open.src === 'discord' ? ' <span class="src discord">Discord</span>' : ''}` : `${roleOf(p) ? esc(deptOf(roleOf(p)) ? deptOf(roleOf(p)).name : roleOf(p).name) : 'No role'}${p.discord ? ' · @' + esc(p.discord) : ''}`}</div>
       ${open && ckAll(open) ? `<div><div class="row mu2" style="font-size:11.5px;margin-bottom:4px"><span>Checklist ${ckDone(open)}/${ckAll(open)}</span></div><div class="bar"><i style="width:${(ckDone(open) / ckAll(open)) * 100}%"></i></div></div>` : ''}</button>`; }).join('')}</div></div>
     <div class="card feed"><div class="row" style="margin-bottom:6px"><span class="lbl">Today</span><span class="sp"></span><span class="mu2" style="font-size:11px">updates every 20s</span></div>${ev.length ? ev.slice(0, 40).map((e) => `<div class="fi"><div class="ic">${e[1]}</div><div><b>${esc(e[2])}</b><small>${esc(e[3])}${e[3] ? ' · ' : ''}${tm(e[0])}</small></div></div>`).join('') : '<div class="mu" style="padding:14px 0;font-size:12.5px">Nothing yet today.</div>'}</div></div>
     ${ganttRows.length ? `<div class="card gantt"><div class="row" style="margin-bottom:8px"><span class="lbl">Today</span><span class="sp"></span><span class="mu2" style="font-size:11px">12 AM ··· 6 AM ··· 12 PM ··· 6 PM ··· 12 AM</span></div>${ganttRows.map((p) => `<div class="grow"><span>${esc(first(p.name))}</span><div class="gtrack">${today.filter((c) => c.person_id === p.id).map((c) => { const [a, z] = span(c); return `<div class="gseg" style="left:${pct(a)}%;width:${Math.max(0.4, pct(z) - pct(a))}%;background:${colorOf(p.name)}"></div>`; }).join('')}${O.breaks.filter((b) => b.person_id === p.id && (b.ended_at ? ms(b.ended_at) : Date.now()) > t0).map((b) => `<div class="gseg b" style="left:${pct(Math.max(ms(b.started_at), t0))}%;width:${Math.max(0.3, pct(b.ended_at ? ms(b.ended_at) : Date.now()) - pct(Math.max(ms(b.started_at), t0)))}%"></div>`).join('')}<div class="gnow" style="left:${pct(Date.now())}%"></div></div></div>`).join('')}</div>` : ''}`
@@ -521,6 +521,81 @@ function discordView(m) {
     ${(O.announcements || []).length ? `<div class="mu2" style="font-size:12px">Last: ${O.announcements.map((a) => `“${esc(a.text.slice(0, 50))}${a.text.length > 50 ? '…' : ''}” · ${ago(ms(a.at))}`).join('<br>')}</div>` : ''}</div>
     <div class="card" style="padding:14px 16px"><div class="lbl">Never posted</div><div class="mu" style="font-size:12.5px;margin-top:6px">Pay, rates, earnings · account logins · message text · hand-in numbers · notes from “something stopped me” · anything from briefs/SOPs.</div></div>
     <div class="card" style="padding:14px 16px"><div class="lbl">Timed posts</div><div class="mu" style="font-size:12.5px;margin-top:6px">Late alerts, the recap and the pay day reminder are checked every 5 minutes by the SA. Team server (its Cron Trigger).</div></div></div></div></div>`;
+}
+
+// ---- Discord bot: clock in from Discord, linking, DM reminders, What they see in Discord ----
+const BDM = [['soon', 'Shift starting soon', 'if they’re not clocked in yet', 'min', 'min before'], ['late', 'Late', 'after your late rule (Schedule)'], ['handin', 'Hand-in missing', 'with a “Hand it in” button', 'after', 'min after clock-out'], ['payday', 'Pay day', 'the period + hours logged, never money'], ['reply', 'Your replies', 'when you reply to their message']];
+const dcUrl = () => String((window.SA_CONFIG || {}).url || '').replace(/\/$/, '') + '/discord';
+const chName = (id) => { const b = (S.O && S.O.bot) || {}; if (b.panel && b.panel.channel_id === id) return b.panel.channel_name || 'clock-in'; const c = ((S.botChk || {}).channels || []).find((x) => x.id === id); return c ? c.name : 'clock-in'; };
+const dmd = (t) => esc(t || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/&lt;#(\d+)&gt;/g, (_, id) => `<span class="dcm">#${esc(chName(id))}</span>`).replace(/\n/g, '<br>');
+const BST = { 1: 'blu', 2: 'gry', 3: 'grn', 4: 'red', 5: 'gry' };
+function dcButtons(rows, live) {
+  return (rows || []).map((r) => `<div class="dcrow">${(r.components || []).map((c) => `<button class="dcb ${BST[c.style] || 'gry'}" ${live ? (c.style === 5 ? 'data-a="bpvlink"' : `data-a="bpv" data-v="${esc(c.custom_id)}"`) : 'disabled'}>${c.emoji ? esc(c.emoji.name) + ' ' : ''}${esc(c.label)}${c.style === 5 ? ' ↗' : ''}</button>`).join('')}</div>`).join('');
+}
+function dcMsg(d, o = {}) {
+  const em = (d.embeds || []).map((e) => `<div class="dce" style="border-color:#${((e.color || 0xc6ff4d) >>> 0).toString(16).padStart(6, '0')}">${e.title ? `<b>${dmd(e.title)}</b>` : ''}${e.description ? `<div>${dmd(e.description)}</div>` : ''}${(e.fields || []).map((f) => `<div><b>${esc(f.name)}</b> ${esc(f.value)}</div>`).join('')}${e.footer ? `<small>${esc(e.footer.text)}</small>` : ''}</div>`).join('');
+  return `<div class="dcmsg${o.eph ? ' eph' : ''}"><div class="dcav">SA</div><div class="dcb0"><div class="dch"><b>${esc((S.O.settings || {}).team_name || 'SA. Team')}</b><span class="dcbot">APP</span><small>${o.when || 'Today'}</small>${o.pin ? '<small>📌 pinned</small>' : ''}</div>
+    ${d.content ? `<div class="dct">${dmd(d.content)}</div>` : ''}${em}${dcButtons(d.components, o.live)}${o.eph ? '<div class="dceph">👁 Only you can see this · <u>Dismiss message</u></div>' : ''}</div></div>`;
+}
+function botView(m) {
+  const O = S.O, b = O.bot || { dm: {} }, ck = S.botChk, people = O.people.filter((p) => !p.gone).sort((x, y) => (x.is_owner ? 1 : 0) - (y.is_owner ? 1 : 0)), team = people.filter((p) => !p.is_owner);
+  const st = !ck ? `<span class="mu2">Not checked yet · press <b>Check</b></span>` : !ck.token ? `<span class="warn">No bot key yet.</span> <span class="mu2">${esc(ck.message || '')}</span>` : !ck.ok ? `<span class="bad">${esc(ck.message || 'Not working')}</span>` : `<span class="ok">✅ Connected as <b>${esc(ck.bot.name)}</b></span> <span class="mu2">· key ends ${esc(ck.token_end)}${ck.servers.length ? ' · in ' + esc(ck.servers.join(', ')) : ' · not in a server yet'}</span>${ck.app_ok ? '' : '<br><span class="warn">The Application ID above isn’t this bot’s. Copy it again from the Developer Portal.</span>'}`;
+  const cmds = ck && ck.commands ? ck.commands : null, cmdOk = cmds && ['link', 'message', 'shift', 'hours'].every((c) => cmds.includes(c));
+  const chs = (ck && ck.channels) || [], many = new Set(chs.map((c) => c.server)).size > 1;
+  const pn = b.panel;
+  const pv = S.bpv || (S.bpv = { pid: (team[0] || people[0] || {}).id, steps: [], res: null });
+  const pvp = people.find((p) => p.id === pv.pid);
+  const linkCell = (p) => { const waiting = p.link_code && ms(p.link_exp) > Date.now();
+    return `<tr><td><b>${esc(p.name)}</b>${p.is_owner ? ' <span class="mu2">(you)</span>' : ''}<div>${chip(O.roles.find((r) => r.id === p.role_id))}</div></td><td>${p.discord_id ? `<span class="mono">@${esc(p.discord_name || 'linked')}</span>` : '<span class="mu2">—</span>'}</td>
+      <td>${p.discord_id ? '<span class="ok">✅ linked</span>' : waiting ? `<span class="warn">code <b class="mono">${esc(p.link_code)}</b> · waiting</span>` : '<span class="mu2">not linked</span>'}</td>
+      <td style="text-align:right">${p.discord_id ? `<button class="btn sm bad" data-a="bunlink" data-v="${p.id}">Unlink</button>` : `<button class="btn sm" data-a="bcode" data-v="${p.id}">${waiting ? 'New code' : 'Code'}</button>`}</td></tr>`; };
+  const r = pv.res, rep = r && r.reply, isModal = rep && rep.type === 9;
+  m.innerHTML = `${topBar('Discord bot', 'clock in, hand in and message from Discord · same records as the website')}<div class="body"><div class="schl bgrid">
+  <div class="col" style="gap:14px">
+    <div class="card ed" style="padding:14px 16px"><div class="lbl">1 · Connect the bot</div>
+      <div class="fr"><span>Application ID<small>Developer Portal → General Information</small></span><input id="bapp" class="mono" value="${esc(b.app_id || '')}" placeholder="e.g. 1234567890123456789"></div>
+      <div class="fr"><span>Public Key<small>same page, just under it</small></span><input id="bpub" class="mono" placeholder="${b.has_key ? 'saved ' + esc(b.public_key) + ' (paste to replace)' : '64 letters and numbers'}"></div>
+      <div class="fr"><span>Interactions Endpoint URL<small>paste this into the Portal, same page</small></span><div class="row"><input class="mono" readonly value="${esc(dcUrl())}" style="flex:1;font-size:12px"><button class="btn sm" data-a="bcopyurl">Copy</button></div></div>
+      <div class="fr"><span>Bot key<small>never here: Cloudflare secret BOT_TOKEN</small></span><div style="font-size:12.5px;line-height:1.5">${st}</div></div>
+      <div class="fr"><span>Commands<small>/link /message /shift /hours</small></span><div class="row" style="font-size:12.5px">${cmds ? (cmdOk ? '<span class="ok">✅ set up</span>' : '<span class="warn">not set up yet</span>') : '<span class="mu2">check first</span>'}<span class="sp"></span><button class="btn sm" data-a="bcmds" ${ck && ck.ok ? '' : 'disabled'}>${cmdOk ? 'Set up again' : 'Set up commands'}</button></div></div>
+      <div class="fr"><span>Invite the bot<small>to your Discord server, once</small></span><div class="row" style="font-size:12.5px">${b.app_id ? `<a class="btn sm" id="binv" href="https://discord.com/oauth2/authorize?client_id=${esc(b.app_id)}&scope=bot%20applications.commands&permissions=93184" target="_blank" rel="noopener">Open invite link ↗</a><span class="mu2">pick your server → Authorize</span>` : '<span class="mu2">save the Application ID first</span>'}</div></div>
+      <div class="row"><button class="btn pri" data-a="bsave">Save</button><button class="btn" data-a="bcheck">Check</button><span class="mu2" style="font-size:12px">Save first, then paste the URL in the Portal (Discord tests it right away).</span></div></div>
+    <div class="card ed" style="padding:14px 16px"><div class="lbl">2 · The clock-in panel</div>
+      <div class="mu2" style="font-size:12px;margin-top:-6px">The bot posts the buttons in a channel and pins them. Post again after you rename the team or change the website link: it edits the same message.</div>
+      <div class="fr"><span>Channel</span>${chs.length ? `<select id="bch">${chs.map((c) => `<option value="${c.id}" data-n="${esc(c.name)}" ${pn && pn.channel_id === c.id ? 'selected' : ''}>#${esc(c.name)}${many ? ' · ' + esc(c.server) : ''}</option>`).join('')}</select>` : `<input id="bchid" class="mono" placeholder="${ck && ck.ok ? 'no channels: invite the bot to your server first' : 'press Check to list your channels'}" ${ck && ck.ok ? '' : 'disabled'}>`}</div>
+      <div class="row"><button class="btn pri" data-a="bpanel" ${ck && ck.ok ? '' : 'disabled'}>${pn ? 'Refresh panel' : 'Post panel'}</button><span class="mu2" style="font-size:12px">${pn ? `In <b>#${esc(pn.channel_name || 'channel')}</b>${pn.pinned ? ' · pinned' : ' · not pinned (pin it yourself)'} · ${ago(ms(pn.at))}` : 'Not posted yet'}</span></div></div>
+    <div class="card ed" style="padding:14px 16px"><div class="lbl">Where people clock in</div>
+      <div class="seg3" style="margin-top:4px">${[['both', 'Website + Discord'], ['discord', 'Discord only'], ['web', 'Website only']].map(([v, t]) => `<button class="${b.where === v ? 'on' : ''}" data-a="bwhere" data-v="${v}">${t}</button>`).join('')}</div>
+      <div class="mu2" style="font-size:12px;margin-top:8px">${b.where === 'discord' ? 'The website’s Clock in button points them to the Discord panel. Breaks, clock-out, hand-ins and messages still work on both.' : b.where === 'web' ? 'Discord buttons point them to the website. Commands and DMs still work.' : 'Either one. Every record says where it came from.'}</div></div>
+    <div class="card ed" style="padding:14px 16px"><div class="lbl">DM reminders from the bot</div><div class="mu2" style="font-size:12px;margin-top:-6px">Private DMs, only to linked people, checked every 5 minutes.</div>
+      ${BDM.map(([k, n, sub, f, unit]) => { const e = b.dm[k] || {}; return `<div class="evr bdm" data-k="${k}"><button class="tg ${e.on ? 'on' : ''}" data-a="tgl"></button><div style="flex:1"><b style="font-size:13px">${n}</b><div class="mu2" style="font-size:11.5px">${sub}</div></div>${f ? `<input type="number" class="bdmn" min="1" max="600" value="${esc(e[f] || (f === 'min' ? 15 : 30))}" style="width:70px"><span class="mu2" style="font-size:12px">${unit}</span>` : ''}</div>`; }).join('')}
+      <div class="row"><button class="btn pri" data-a="bsave">Save</button></div></div>
+  </div>
+  <div class="col" style="gap:14px">
+    <div class="card" style="padding:14px 16px"><div class="lbl">People</div><div class="mu2" style="font-size:12px;margin:4px 0 8px">Give each person a code once: they type <b>/link 4821</b> in Discord. Codes last 7 days. Unlinked people still use the website.</div>
+      <table class="tbl btbl"><tbody>${people.map(linkCell).join('')}</tbody></table></div>
+    <div class="card" style="padding:14px 16px"><div class="row"><div class="lbl">What they see in Discord</div><span class="sp"></span><select id="bpvp" style="max-width:160px">${people.map((p) => `<option value="${p.id}" ${p.id === pv.pid ? 'selected' : ''}>${esc(p.name)}${p.is_owner ? ' (you)' : ''}</option>`).join('')}</select></div>
+      <div class="mu2" style="font-size:12px;margin:6px 0 8px">Practice: click the buttons as ${esc(first(pvp ? pvp.name : ''))}. Built live from your settings. Nothing is saved, nobody gets a post.${pvp && !pvp.discord_id ? ' <span class="warn">(not linked yet: real taps would ask for /link)</span>' : ''}</div>
+      <div class="dcwin" id="dcwin"><div class="dcchan"># ${esc(pn ? pn.channel_name || 'clock-in' : 'clock-in')}</div>
+        ${r ? dcMsg(r.panel, { pin: true, live: true }) : '<div class="mu2" style="padding:14px">Loading…</div>'}
+        ${rep && rep.type === 4 ? dcMsg(rep.data, { eph: true, live: true }) : ''}
+        ${isModal ? `<div class="dcmod"><b>${esc(rep.data.title)}</b>${rep.data.components.map((row) => { const c = row.components[0]; return `<label>${esc(c.label)}${c.required ? ' <span style="color:#f23f43">*</span>' : ''}${c.style === 2 ? `<textarea data-k="${esc(c.custom_id)}" rows="2" placeholder="${esc(c.placeholder || '')}"></textarea>` : `<input data-k="${esc(c.custom_id)}" placeholder="${esc(c.placeholder || '')}">`}</label>`; }).join('')}<div class="row" style="justify-content:flex-end"><button class="dcb gry" data-a="bpvx">Cancel</button><button class="dcb blu" data-a="bpvsub" data-v="${esc(rep.data.custom_id)}">Submit</button></div></div>` : ''}
+        ${pv.msg ? `<div class="dcin"><span class="mono">/message</span><input id="bpvmsg" maxlength="280" placeholder="text (practice)"><select id="bpvmk"><option value="update">Update</option><option value="question">Question</option><option value="problem">Problem</option></select><button class="dcb blu" data-a="bpvmsend">Send</button></div>` : ''}
+        <div class="dccmd">${[['shift', '/shift'], ['hours', '/hours'], ['message', '/message …']].map(([c, t]) => `<button data-a="bpvcmd" data-v="${c}">${t}</button>`).join('')}<span class="sp"></span><button data-a="bpvreset">↺ Start over</button></div></div></div>
+    <div class="card" style="padding:14px 16px"><div class="lbl">Last 2 days · from where</div>${(O.bot_feed || []).length ? `<div class="bfeed">${O.bot_feed.slice(0, 14).map((x) => `<div><b>${esc(x.who)}</b><span>${esc(x.what)}</span><small>${tm(ms(x.at))}</small><span class="src ${x.src}">${x.src === 'discord' ? 'Discord' : 'Website'}</span></div>`).join('')}</div>` : '<div class="mu2" style="font-size:12.5px;margin-top:6px">Nothing yet.</div>'}</div>
+  </div></div></div>`;
+  if (!r && pv.pid && !pv.loading) bpvRun();
+}
+async function bpvRun(step) {
+  const pv = S.bpv; if (!pv || !pv.pid) return; if (step) pv.steps.push(step); pv.loading = true;
+  try { pv.res = await call('t_bot_preview', { p_pid: pv.pid, p_steps: pv.steps }); } catch (e) { toast(e.message, 4000); if (step) pv.steps.pop(); } finally { pv.loading = false; }
+  if (S.page === 'bot') paintMain();
+}
+function codeDlg(p, c) {
+  const msg = `Hey ${first(p.name)} 👋 Link your Discord to SA. Team: in our server, type /link ${c.code} (it works for 7 days). Then use the clock-in panel${S.O.bot && S.O.bot.panel ? ' in #' + S.O.bot.panel.channel_name : ''}.`;
+  $('#dlg').innerHTML = `<div class="scrim" id="dlgscrim"><div class="dlg"><h2>${esc(first(p.name))}’s Discord code</h2><div class="bcode mono">${esc(c.code)}</div><p class="mu" style="font-size:12.5px">Lasts 7 days. Send it to ${esc(first(p.name))} privately. Once they’ve linked, the code stops working.</p>
+    <textarea id="bcmsg" rows="3" readonly style="width:100%">${esc(msg)}</textarea><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-a="closedlg">Close</button><button class="btn pri" data-a="bcmcopy">Copy message</button></div></div></div>`;
+  $('#dlgscrim').onclick = (e) => { if (e.target.id === 'dlgscrim') $('#dlg').innerHTML = ''; };
 }
 
 // ---- Briefs & SOPs (sent from SA. Management) ----
@@ -847,3 +922,25 @@ setInterval(() => {
 }, 20e3);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.who && S.who.state === 'ok' && !S.busy) (S.who.owner ? refreshClocks().then(paintMain) : loadMe().then(() => { if (!document.activeElement || !['handover', 'stucknote'].includes(document.activeElement.id)) teamPage(); })).catch(() => {}); });
 boot();
+// Discord bot page actions (after A exists)
+Object.assign(A, {
+  bsave: () => act(async () => { const dm = {}; document.querySelectorAll('.bdm').forEach((r) => { const k = r.dataset.k, n = r.querySelector('.bdmn'); dm[k] = { on: r.querySelector('.tg').classList.contains('on'), ...(n ? { [k === 'soon' ? 'min' : 'after']: n.value } : {}) }; });
+    const pub = $('#bpub').value.trim(); await call('t_bot_save', { p_app_id: $('#bapp').value.trim(), ...(pub ? { p_public_key: pub } : {}), p_dm: dm, p_site: siteUrl() }); S.bpv && (S.bpv.res = null); await reOwner(); }, 'Saved'),
+  bcheck: () => act(async () => { S.botChk = await call('t_bot_check'); paintMain(); if (S.botChk.ok && !S.botChk.servers.length) toast('Connected, but the bot isn’t in a server yet: use the invite link (steps file)', 5000); }),
+  bcmds: () => act(async () => { const r = await call('t_bot_commands'); if (!r.ok) throw new Error(r.message); S.botChk = { ...S.botChk, commands: r.commands }; paintMain(); }, 'Commands set up: type / in Discord to see them'),
+  bpanel: () => act(async () => { const sel = $('#bch'), id = sel ? sel.value : ($('#bchid') || {}).value, nm = sel ? sel.selectedOptions[0].dataset.n : 'clock-in';
+    const r = await call('t_bot_post_panel', { p_channel: String(id || '').trim(), p_channel_name: nm }); if (!r.ok) throw new Error(r.message); await reOwner(); if (r.note) toast(r.note, 5000); else toast(r.updated ? 'Panel refreshed' : 'Panel posted and pinned'); }),
+  bwhere: (v) => act(async () => { await call('t_bot_save', { p_where: v }); await reOwner(); }, 'Saved'),
+  bcode: (v) => act(async () => { const p = S.O.people.find((x) => x.id === v), c = await call('t_bot_code', { p_pid: v }); await reOwner(); codeDlg(p, c); }),
+  bcmcopy: async () => { try { await navigator.clipboard.writeText($('#bcmsg').value); toast('Copied'); } catch { $('#bcmsg').select(); } },
+  bunlink: async (v) => { const p = S.O.people.find((x) => x.id === v); if (!(await ask(`Unlink ${first(p.name)}’s Discord?`, 'Their Discord buttons stop working until you give them a new code. Their records stay.', 'Unlink', true))) return; act(async () => { await call('t_bot_unlink', { p_pid: v }); await reOwner(); }, 'Unlinked'); },
+  bcopyurl: async () => { try { await navigator.clipboard.writeText(dcUrl()); toast('Copied: paste it into Interactions Endpoint URL'); } catch { toast(dcUrl(), 6000); } },
+  bpv: (v) => bpvRun({ id: v }),
+  bpvlink: () => toast('That opens SA. Team in their browser'),
+  bpvcmd: (v) => { if (v === 'message') { S.bpv.msg = !S.bpv.msg; paintMain(); const i = $('#bpvmsg'); if (i) i.focus(); return; } bpvRun({ cmd: v }); },
+  bpvmsend: () => { const t = ($('#bpvmsg') || {}).value || ''; if (!t.trim()) return; S.bpv.msg = false; bpvRun({ cmd: 'message', opts: { text: t.trim(), kind: ($('#bpvmk') || {}).value || 'update' } }); },
+  bpvsub: (v) => { const vals = {}; document.querySelectorAll('.dcmod [data-k]').forEach((x) => { vals[x.dataset.k] = x.value; }); bpvRun({ id: v, vals }); },
+  bpvx: () => { S.bpv.res = { ...S.bpv.res, reply: null }; paintMain(); },
+  bpvreset: () => { S.bpv.steps = []; S.bpv.res = null; paintMain(); },
+});
+document.addEventListener('change', (e) => { if (e.target.id === 'bpvp') { S.bpv = { pid: e.target.value, steps: [], res: null }; paintMain(); } });
